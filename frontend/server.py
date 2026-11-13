@@ -2033,10 +2033,19 @@ def build_run_config(payload: Mapping[str, Any], job_dir: Path) -> Dict[str, Any
     watchdog_default = bool(watchdog.get("enabled", True))
     watchdog_enabled = _ui_bool(payload.get("stallWatchdog"), watchdog_default)
     watchdog["enabled"] = watchdog_enabled
-    if str(payload.get("stallMode")) in {"observe", "recover_once", "recover"}:
+    explicit_stall_mode = str(payload.get("stallMode")) in {
+        "observe",
+        "recover_once",
+        "recover",
+    }
+    if explicit_stall_mode:
         watchdog["mode"] = str(payload["stallMode"])
+    elif not watchdog_enabled:
+        # A template may carry recovery mode; disabling the watchdog must not
+        # silently keep recover_once active.
+        watchdog["mode"] = "observe"
     elif "mode" not in watchdog:
-        watchdog["mode"] = "recover_once" if watchdog_enabled else "observe"
+        watchdog["mode"] = "recover_once"
     config["stall_watchdog"] = watchdog
     return config
 

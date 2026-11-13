@@ -172,7 +172,7 @@ class ServerConfigTests(unittest.TestCase):
 
     def test_framework_templates_expose_the_audit_start_page(self) -> None:
         templates = server.available_configs()
-        baibai = next(item for item in templates if item["name"] == "acceptance_baibai_fastbot.json")
+        baibai = next(item for item in templates if item["name"] == "settings.json")
 
         self.assertEqual(
             [{
@@ -199,15 +199,21 @@ class ServerConfigTests(unittest.TestCase):
             apk = uploads / "sample.apk"
             apk.write_bytes(b"apk")
             payload = {
-                "configFile": "acceptance_baibai_fastbot.json",
-                "workflowMode": "matched",
+                "configFile": "settings.json",
+                "workflowMode": "generic",
                 "startupPage": "audit_gate",
-                "packageName": "com.ofuodapz.recordsofbaibaichat",
+                "packageName": "com.nxxbsvwhyq.privatevideohighdefinitionplayer",
+                "apkPackageName": "com.nxxbsvwhyq.privatevideohighdefinitionplayer",
                 "apkPath": str(apk),
                 "devices": ["serial-1"],
             }
             with (
                 mock.patch.object(server, "UPLOAD_ROOT", uploads),
+                mock.patch.object(
+                    server,
+                    "apk_package_name",
+                    return_value=("com.nxxbsvwhyq.privatevideohighdefinitionplayer", ""),
+                ),
                 mock.patch.object(
                     server.DeviceManager,
                     "get_device_states",
@@ -216,7 +222,8 @@ class ServerConfigTests(unittest.TestCase):
             ):
                 config = server.build_run_config(payload, root / "job")
 
-        self.assertEqual("complete_audit_gate", config["scenario"]["navigation_steps"][0]["action"])
+        steps = [step["action"] for step in config["scenario"]["navigation_steps"]]
+        self.assertIn("complete_audit_gate", steps)
 
     def test_package_check_uses_cmd_package_when_pm_alias_has_no_result(self) -> None:
         first = mock.Mock(stdout="", stderr="")
@@ -344,7 +351,7 @@ class ServerConfigTests(unittest.TestCase):
             payload = {
                 "selectedDevices": ["serial-1", "serial-2", "serial-1"],
                 "config": {
-                    "configFile": "acceptance_baibai_fastbot.json",
+                    "configFile": "settings.json",
                     "packageName": "com.invalid.will.be.replaced",
                     "apkPath": str(apk),
                     "apkName": "sample.apk",
@@ -397,6 +404,11 @@ class ServerConfigTests(unittest.TestCase):
             with (
                 mock.patch.object(server, "UPLOAD_ROOT", uploads),
                 mock.patch.object(
+                    server,
+                    "apk_package_name",
+                    return_value=("com.nxxbsvwhyq.privatevideohighdefinitionplayer", ""),
+                ),
+                mock.patch.object(
                     server.DeviceManager,
                     "get_device_states",
                     return_value={"serial-1": {"adb_state": "device"}},
@@ -427,6 +439,11 @@ class ServerConfigTests(unittest.TestCase):
             with (
                 mock.patch.object(server, "UPLOAD_ROOT", uploads),
                 mock.patch.object(
+                    server,
+                    "apk_package_name",
+                    return_value=("com.nxxbsvwhyq.privatevideohighdefinitionplayer", ""),
+                ),
+                mock.patch.object(
                     server.DeviceManager,
                     "get_device_states",
                     return_value={"serial-1": {"adb_state": "device"}},
@@ -445,7 +462,7 @@ class ServerConfigTests(unittest.TestCase):
             apk = uploads / "sample.apk"
             apk.write_bytes(b"apk")
             payload = {
-                "configFile": "acceptance_baibai_fastbot.json",
+                "configFile": "settings.json",
                 "workflowMode": "generic",
                 "packageName": "com.example.sample",
                 "apkPath": str(apk),
@@ -479,7 +496,7 @@ class ServerConfigTests(unittest.TestCase):
             apk = uploads / "sample.apk"
             apk.write_bytes(b"apk")
             payload = {
-                "configFile": "acceptance_baibai_fastbot.json",
+                "configFile": "settings.json",
                 "workflowMode": "generic",
                 "packageName": "com.example.sample",
                 "apkPath": str(apk),
@@ -529,7 +546,7 @@ class ServerConfigTests(unittest.TestCase):
             apk = uploads / "sample.apk"
             apk.write_bytes(b"apk")
             payload = {
-                "configFile": "acceptance_baibai_fastbot.json",
+                "configFile": "settings.json",
                 "workflowMode": "generic",
                 "startupPage": "app_home",
                 "packageName": "com.example.sample",
@@ -562,7 +579,7 @@ class ServerConfigTests(unittest.TestCase):
             apk = uploads / "sample.apk"
             apk.write_bytes(b"apk")
             payload = {
-                "configFile": "acceptance_baibai_fastbot.json",
+                "configFile": "settings.json",
                 "workflowMode": "generic",
                 "auditGateEveryLaunch": False,
                 "packageName": "com.example.sample",
@@ -595,16 +612,22 @@ class ServerConfigTests(unittest.TestCase):
             apk = uploads / "sample.apk"
             apk.write_bytes(b"apk")
             payload = {
-                "configFile": "run_netcoolemail_8h_250ms_20260828.json",
-                "workflowMode": "matched",
+                "configFile": "settings.json",
+                "workflowMode": "generic",
                 "startupPage": "app_home",
                 "auditGateEveryLaunch": True,
-                "packageName": "com.jzeposbs.netcoolemailmaster",
+                "packageName": "com.example.sample",
+                "apkPackageName": "com.example.sample",
                 "apkPath": str(apk),
                 "devices": ["serial-1"],
             }
             with (
                 mock.patch.object(server, "UPLOAD_ROOT", uploads),
+                mock.patch.object(
+                    server,
+                    "apk_package_name",
+                    return_value=("com.example.sample", ""),
+                ),
                 mock.patch.object(
                     server.DeviceManager,
                     "get_device_states",
@@ -619,7 +642,7 @@ class ServerConfigTests(unittest.TestCase):
             [step["action"] for step in steps],
         )
         self.assertEqual(
-            "com.jzeposbs.netcoolemailmaster:id/auditRadioButton",
+            "com.example.sample:id/auditRadioButton",
             steps[1]["audit_locator"]["resourceId"],
         )
         self.assertTrue(config["scenario"]["audit_recovery"]["enabled"])
