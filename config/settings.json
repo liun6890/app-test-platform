@@ -1,0 +1,111 @@
+{
+    "app": {
+        "package_name": "com.nxxbsvwhyq.privatevideohighdefinitionplayer",
+        "apk_path": "../apks/app-under-test.apk"
+    },
+    "test": {
+        "fastbot_duration_minutes": 5,
+        "fastbot_throttle_ms": 250,
+        "max_cycles": 2,
+        "crash_replay_attempts": 3,
+        "fastbot_timeout_grace_seconds": 60,
+        "permission_dialog_settle_seconds": 3
+    },
+    "crash_replay": {
+        "window_seconds": 120,
+        "max_events": 400,
+        "activity_restore_timeout_seconds": 8,
+        "require_page_anchor": true,
+        "allow_cold_activity_start": false
+    },
+    "devices": [
+        {
+            "serial": "a93adef2",
+            "alias": "target-device"
+        }
+    ],
+    "logging": {
+        "level": "INFO",
+        "log_dir": "./logs"
+    },
+    "paths": {
+        "reports_dir": "./reports"
+    },
+    "parallel": {
+        "max_workers": 1
+    },
+    "resume": {
+        "enabled": true,
+        "mode": "auto",
+        "max_attempts": 3,
+        "checkpoint_interval_seconds": 10,
+        "wait_for_device_seconds": 1800,
+        "resume_partial_cycle": true,
+        "clear_app_data_on_resume": false,
+        "reinstall_on_resume": false
+    },
+    "input_safety": {
+        "enabled": false
+    },
+    "screenshot": {
+        "enabled": false,
+        "interval_seconds": 5
+    },
+    "screen_recording": {
+        "enabled": false
+    },
+    "stall_watchdog": {
+        "enabled": true,
+        "mode": "recover_once",
+        "sample_interval_seconds": 30,
+        "unchanged_seconds": 300,
+        "startup_grace_seconds": 30,
+        "max_hash_distance": 6,
+        "max_recoveries_per_cycle": 1
+    },
+    "fastbot": {
+        "engine": "fastbot",
+        "classpath": "/data/local/tmp/monkey.apk",
+        "expected_monkeyq_md5": "14c968755e33340f957e81b087d3722c",
+        "main_class": "com.android.commands.monkey.Monkey",
+        "extra_args": [],
+        "event_percentages": {
+            "touch": 70,
+            "motion": 25,
+            "pinchzoom": 5
+        }
+    },
+    "scenario": {
+        "login_enabled": false,
+        "target_page": "HomePage",
+        "login_locators": {
+            "username": {
+                "resourceId": "com.example.app:id/username_field"
+            },
+            "password": {
+                "resourceId": "com.example.app:id/password_field"
+            },
+            "login_button": {
+                "resourceId": "com.example.app:id/login_button"
+            }
+        },
+        "navigation_steps": [
+            {
+                "action": "click",
+                "locator": {
+                    "text": "审核中"
+                },
+                "timeout": 15,
+                "after": 0.5
+            },
+            {
+                "action": "click",
+                "locator": {
+                    "textContains": "确"
+                },
+                "timeout": 15,
+                "after": 1
+            }
+        ]
+    }
+}
