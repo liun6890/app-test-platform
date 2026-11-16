@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+import console_scenario
 import server
 
 
@@ -3529,6 +3530,72 @@ class ElapsedTextTests(unittest.TestCase):
         }
         value = server.elapsed_text(job)
         self.assertTrue(value.startswith("00:00:3"), value)
+
+
+class AuditGateOptionTests(unittest.TestCase):
+    def test_default_policy_selects_audit_without_channel(self):
+        step = console_scenario._audit_gate_step("com.example.app")
+        self.assertEqual(
+            "com.example.app:id/auditRadioButton",
+            step["audit_locator"]["resourceId"],
+        )
+        self.assertNotIn("channel_locator", step)
+
+    def test_selected_channel_and_status_are_applied(self):
+        step = console_scenario._audit_gate_step(
+            "com.example.app", channel="oppo", status="online"
+        )
+        self.assertEqual(
+            "com.example.app:id/onlineRadioButton",
+            step["audit_locator"]["resourceId"],
+        )
+        self.assertEqual(
+            "com.example.app:id/oppoRadioButton",
+            step["channel_locator"]["resourceId"],
+        )
+
+    def test_policy_writes_channel_and_status_into_recovery(self):
+        config = {"scenario": {"navigation_steps": [{"action": "launch_app"}]}}
+        console_scenario.apply_audit_gate_policy(
+            config, "com.example.app", True, channel="xiaomi", status="audit"
+        )
+        recovery = config["scenario"]["audit_recovery"]
+        self.assertEqual(
+            "com.example.app:id/auditRadioButton", recovery["audit_resource_id"]
+        )
+        self.assertEqual(
+            "com.example.app:id/xiaomiRadioButton", recovery["channel_resource_id"]
+        )
+
+    def test_invalid_channel_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            uploads = root / "uploads"
+            uploads.mkdir()
+            apk = uploads / "sample.apk"
+            apk.write_bytes(b"apk")
+            payload = {
+                "configFile": "settings.json",
+                "workflowMode": "generic",
+                "packageName": "com.example.sample",
+                "apkPackageName": "com.example.sample",
+                "apkPath": str(apk),
+                "devices": ["serial-1"],
+                "auditChannel": "unknown-channel",
+            }
+            with (
+                mock.patch.object(server, "UPLOAD_ROOT", uploads),
+                mock.patch.object(
+                    server, "apk_package_name", return_value=("com.example.sample", "")
+                ),
+                mock.patch.object(
+                    server.DeviceManager,
+                    "get_device_states",
+                    return_value={"serial-1": {"adb_state": "device"}},
+                ),
+            ):
+                with self.assertRaises(server.ApiError):
+                    server.build_run_config(payload, root / "job")
 
 
 if __name__ == "__main__":

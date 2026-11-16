@@ -2459,6 +2459,7 @@ class StateManager:
         audit_activity: str = "",
         should_stop: Optional[Callable[[], bool]] = None,
         allow_stable_foreground_fallback: bool = False,
+        channel_locator: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Select the audit state and clear any following startup consent.
 
@@ -2489,6 +2490,22 @@ class StateManager:
                 )
                 self._audit_gate_known_complete = True
                 return True
+
+        if channel_locator:
+            # The console can preselect a channel before the audit state.  It is
+            # optional: the default path leaves every channel untouched.
+            if self._click_if_exists(channel_locator, timeout=2.5):
+                logger.info(
+                    "Selected audit channel %r on %s",
+                    channel_locator,
+                    self.device_serial,
+                )
+            else:
+                logger.info(
+                    "Audit channel control %r was not present on %s; keeping the default",
+                    channel_locator,
+                    self.device_serial,
+                )
 
         normalized_audit_activity = ""
         if audit_activity:
@@ -2826,6 +2843,7 @@ class StateManager:
         timeout: float = 30.0,
         audit_activity: str = "",
         should_stop: Optional[Callable[[], bool]] = None,
+        channel_locator: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Complete the configured startup audit gate after a clean relaunch."""
         return self._complete_audit_gate(
@@ -2835,6 +2853,7 @@ class StateManager:
             audit_activity=audit_activity,
             should_stop=should_stop,
             allow_stable_foreground_fallback=True,
+            channel_locator=channel_locator,
         )
 
     def login(
@@ -2934,11 +2953,17 @@ class StateManager:
                             else {"text": "确定"}
                         )
                     )
+                    channel_locator = step.get("channel_locator")
                     if not self._complete_audit_gate(
                         audit_locator,
                         confirm_locator,
                         timeout,
                         audit_activity=str(step.get("audit_activity", "")),
+                        channel_locator=(
+                            dict(channel_locator)
+                            if isinstance(channel_locator, Mapping)
+                            else None
+                        ),
                     ):
                         raise RuntimeError("Audit gate was not completed")
                 elif action in {"click_if_exists", "optional_click"}:

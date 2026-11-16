@@ -93,6 +93,8 @@ export interface TestConfig {
   navigationSteps: number;
   startupPage: string;
   auditGateEveryLaunch: boolean;
+  auditChannel: string;
+  auditStatus: "audit" | "online" | "advertising";
 }
 
 export interface ScenarioStartPage {

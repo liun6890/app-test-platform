@@ -808,23 +808,37 @@ class TestExecutor:
 
         resource_id = self._xpath_literal(str(options["audit_resource_id"]))
         confirm_text = self._xpath_literal(str(options["confirm_text"]))
+        actions: List[Dict[str, Any]] = []
+        channel_resource_id = str(options.get("channel_resource_id", "")).strip()
+        if channel_resource_id:
+            actions.append(
+                {
+                    "xpath": "//*[@resource-id=%s]"
+                    % self._xpath_literal(channel_resource_id),
+                    "action": "CLICK",
+                    "throttle": 500,
+                }
+            )
+        actions.append(
+            {
+                "xpath": "//*[@resource-id=%s]" % resource_id,
+                "action": "CLICK",
+                "throttle": 500,
+            }
+        )
+        actions.append(
+            {
+                "xpath": "//*[@text=%s]" % confirm_text,
+                "action": "CLICK",
+                "throttle": 1500,
+            }
+        )
         return [
             {
                 "prob": 1,
                 "activity": activity,
                 "times": 1000,
-                "actions": [
-                    {
-                        "xpath": "//*[@resource-id=%s]" % resource_id,
-                        "action": "CLICK",
-                        "throttle": 500,
-                    },
-                    {
-                        "xpath": "//*[@text=%s]" % confirm_text,
-                        "action": "CLICK",
-                        "throttle": 1500,
-                    },
-                ],
+                "actions": actions,
             }
         ]
 
@@ -2919,6 +2933,9 @@ class TestExecutor:
             "audit_resource_id": resource_id,
             "confirm_text": confirm_text,
         }
+        channel_resource_id = str(options.get("channel_resource_id", "")).strip()
+        if channel_resource_id:
+            result["channel_resource_id"] = channel_resource_id
         # Keep the legacy normalized shape stable when no explicit resource
         # id was configured; callers already treat the field as optional.
         if confirm_resource_id:

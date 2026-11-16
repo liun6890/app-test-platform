@@ -39,15 +39,53 @@ def scenario_start_pages(scenario: Any) -> List[Dict[str, str]]:
 
 _AUDIT_GATE_ACTIONS = {"complete_audit_gate", "handle_audit_gate", "audit_gate"}
 
+# Resource-id suffixes on the shared audit page.  ``audit`` (审核中) is the
+# default; the other two states exist for packages that need them.
+AUDIT_STATUS_LOCATORS = {
+    "audit": "auditRadioButton",
+    "online": "onlineRadioButton",
+    "advertising": "advertisingRadioButton",
+}
+AUDIT_STATUS_LABELS = {
+    "audit": "审核中",
+    "online": "自然用户",
+    "advertising": "投放用户",
+}
+AUDIT_CHANNEL_LOCATORS = {
+    "oppo": "oppoRadioButton",
+    "vivo": "vivoRadioButton",
+    "xiaomi": "xiaomiRadioButton",
+    "huawei": "huaweiRadioButton",
+    "honor": "honorRadioButton",
+    "qq": "qqRadioButton",
+    "baidu": "baiduRadioButton",
+    "toutiao": "toutiaoRadioButton",
+    "kuaishou": "kuaishouRadioButton",
+    "guangdiantong": "guangdiantongRadioButton",
+}
 
-def _audit_gate_step(package_name: str) -> Dict[str, Any]:
-    return {
+
+def _audit_gate_step(
+    package_name: str, channel: str = "", status: str = "audit"
+) -> Dict[str, Any]:
+    status_key = status if status in AUDIT_STATUS_LOCATORS else "audit"
+    step: Dict[str, Any] = {
         "action": "complete_audit_gate",
-        "audit_locator": {"resourceId": "%s:id/auditRadioButton" % package_name},
+        "audit_locator": {
+            "resourceId": "%s:id/%s"
+            % (package_name, AUDIT_STATUS_LOCATORS[status_key])
+        },
         "confirm_locator": {"text": "确定"},
         "timeout": 30,
         "after": 3,
     }
+    channel_key = str(channel or "").strip().lower()
+    if channel_key in AUDIT_CHANNEL_LOCATORS:
+        step["channel_locator"] = {
+            "resourceId": "%s:id/%s"
+            % (package_name, AUDIT_CHANNEL_LOCATORS[channel_key])
+        }
+    return step
 
 
 def _step_locator_text(step: Mapping[str, Any]) -> str:
@@ -99,9 +137,17 @@ def _without_audit_gate_steps(steps: Any) -> List[Dict[str, Any]]:
 
 
 def apply_audit_gate_policy(
-    config: Dict[str, Any], package_name: str, enabled: bool
+    config: Dict[str, Any],
+    package_name: str,
+    enabled: bool,
+    channel: str = "",
+    status: str = "audit",
 ) -> None:
-    """Apply one package-relative audit policy to matched and generic runs."""
+    """Apply one package-relative audit policy to matched and generic runs.
+
+    ``channel``/``status`` come from the console form.  An empty channel keeps
+    the historical behaviour: only the audit-state radio is selected.
+    """
     scenario_value = config.get("scenario")
     scenario = copy.deepcopy(dict(scenario_value)) if isinstance(scenario_value, Mapping) else {}
     steps = _without_audit_gate_steps(scenario.get("navigation_steps", []))
@@ -131,10 +177,19 @@ def apply_audit_gate_policy(
             updated_by_device[str(serial)] = normalized
         scenario["navigation_steps_by_device"] = updated_by_device
 
-    scenario["audit_recovery"] = {
+    status_key = status if status in AUDIT_STATUS_LOCATORS else "audit"
+    recovery: Dict[str, Any] = {
         "enabled": enabled,
         "activity": "",
-        "audit_resource_id": "%s:id/auditRadioButton" % package_name,
+        "audit_resource_id": "%s:id/%s"
+        % (package_name, AUDIT_STATUS_LOCATORS[status_key]),
         "confirm_text": "确定",
     }
+    channel_key = str(channel or "").strip().lower()
+    if channel_key in AUDIT_CHANNEL_LOCATORS:
+        recovery["channel_resource_id"] = "%s:id/%s" % (
+            package_name,
+            AUDIT_CHANNEL_LOCATORS[channel_key],
+        )
+    scenario["audit_recovery"] = recovery
     config["scenario"] = scenario

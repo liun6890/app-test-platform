@@ -130,6 +130,19 @@ export function DevicesPage({ devices, selected, refreshing, busyAction, onToggl
   );
 }
 
+const AUDIT_CHANNELS = [
+  { value: "oppo", label: "OPPO" },
+  { value: "vivo", label: "VIVO" },
+  { value: "xiaomi", label: "XIAOMI" },
+  { value: "huawei", label: "HUAWEI" },
+  { value: "honor", label: "HONOR" },
+  { value: "qq", label: "QQ" },
+  { value: "baidu", label: "BAIDU" },
+  { value: "toutiao", label: "今日头条" },
+  { value: "kuaishou", label: "快手" },
+  { value: "guangdiantong", label: "广点通" },
+] as const;
+
 export function ConfigPage({ config, templates, devices, selectedDevices, preflight, setConfig, uploading, starting, onUpload, onStart, onManageDevices }: { config: TestConfig; templates: ConfigTemplate[]; devices: Device[]; selectedDevices: string[]; preflight: PreflightResult | null; setConfig: (config: TestConfig) => void; uploading: boolean; starting: boolean; onUpload: (file: File) => Promise<void>; onStart: () => void; onManageDevices: () => void }) {
   const [tab, setTab] = useState<"basic" | "strategy" | "monitor">("basic");
   const update = <K extends keyof TestConfig>(key: K, value: TestConfig[K]) => setConfig({ ...config, [key]: value });
@@ -166,11 +179,16 @@ export function ConfigPage({ config, templates, devices, selectedDevices, prefli
         {tab === "basic" && <div className="form-section startup-page-section">
           <div className="form-heading"><h2>框架启动路径</h2><span>直接对应已选配置文件的导航步骤</span></div>
           <div className="setting-list compact-settings"><div><span className="setting-icon"><ShieldCheck size={19} /></span><div><strong>每次启动必点“审核中”</strong><small>首次启动、每轮清数据、卡页恢复和前台重启都会处理；页面不存在时自动跳过。</small></div><Toggle checked={config.auditGateEveryLaunch} onChange={() => update("auditGateEveryLaunch", !config.auditGateEveryLaunch)} label="每次启动必点审核中" /></div></div>
+          {config.auditGateEveryLaunch && <div className="field-grid audit-options">
+            <label className="field"><span>审核渠道</span><div className="input-shell"><select value={config.auditChannel} onChange={(event) => update("auditChannel", event.target.value)}><option value="">不选择（默认）</option>{AUDIT_CHANNELS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select><ChevronDown size={15} /></div></label>
+            <label className="field"><span>审核状态</span><div className="input-shell"><select value={config.auditStatus} onChange={(event) => update("auditStatus", event.target.value as TestConfig["auditStatus"])}><option value="audit">审核中</option><option value="online">自然用户</option><option value="advertising">投放用户</option></select><ChevronDown size={15} /></div></label>
+          </div>}
+          {config.auditGateEveryLaunch && <p className="field-note">默认不选择渠道、只勾选「审核中」；选择渠道后会先点渠道，再点审核状态。</p>}
           <span className="field-label">启动页面</span>
           {startPages.length ? <><div className="startup-page-options" role="radiogroup" aria-label="框架启动页面">{startPages.map((item) => <button className={config.startupPage === item.id ? "is-selected" : ""} type="button" role="radio" aria-checked={config.startupPage === item.id} onClick={() => update("startupPage", item.id)} key={item.id}><span className="startup-page-radio" /><MonitorSmartphone size={18} /><span><strong>{item.label}</strong><small>{item.id === "audit_gate" ? "先勾选审核中并确认" : "启动应用后验证前台页面"}</small></span><CheckCircle2 size={18} /></button>)}</div><p className="field-note success-note"><CheckCircle2 size={15} />{startPages.find((item) => item.id === config.startupPage)?.description}</p></> : <p className="field-note error-note"><AlertTriangle size={15} />当前框架没有声明可选择的启动页面。</p>}
           <div className={`launch-review ${unavailable.length ? "is-warning" : ""}`}>
             <div className="launch-review-heading"><div><span>启动前复核</span><strong>{deviceCount} 台设备 · {formatMinutes(config.duration)} · {config.throttle} 毫秒</strong></div><button className="text-button" type="button" onClick={onManageDevices}>管理设备</button></div>
-            <p>框架配置：{config.configFile || "未选择"}。审核门禁：{config.auditGateEveryLaunch ? "每次启动处理" : "关闭"}。启动页面：{startPages.find((item) => item.id === config.startupPage)?.label || "未选择"}。每台执行 {config.cycles} 轮，最多并发 {Math.min(config.workers, Math.max(1, deviceCount))} 台。</p>
+            <p>框架配置：{config.configFile || "未选择"}。审核门禁：{config.auditGateEveryLaunch ? `每次启动处理（${config.auditChannel ? AUDIT_CHANNELS.find((item) => item.value === config.auditChannel)?.label : "不选渠道"} / ${config.auditStatus === "audit" ? "审核中" : config.auditStatus === "online" ? "自然用户" : "投放用户"}）` : "关闭"}。启动页面：{startPages.find((item) => item.id === config.startupPage)?.label || "未选择"}。每台执行 {config.cycles} 轮，最多并发 {Math.min(config.workers, Math.max(1, deviceCount))} 台。</p>
             {selectedRows.length ? <div className="selected-device-chips">{selectedRows.map((device) => <span className={!device.ready || device.jobId ? "is-unavailable" : ""} key={device.serial}><Smartphone size={13} />{device.alias || device.serial}<small>{device.serial}</small></span>)}</div> : <p className="launch-readiness-error"><AlertTriangle size={15} />尚未选择设备</p>}
             {unavailable.length ? <p className="launch-readiness-error"><AlertTriangle size={15} />以下设备暂不可启动：{unavailable.map((device) => device.serial).join("、")}</p> : null}
             {!parametersValid ? <p className="launch-readiness-error"><AlertTriangle size={15} />时长、轮数、事件间隔和并发设备必须填写有效整数</p> : null}

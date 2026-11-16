@@ -2013,7 +2013,22 @@ def build_run_config(payload: Mapping[str, Any], job_dir: Path) -> Dict[str, Any
             "navigation_steps_by_device": {},
             "stop_packages": [package_name],
         }
-    apply_audit_gate_policy(config, package_name, audit_gate_every_launch)
+    audit_channel = str(payload.get("auditChannel") or "").strip().lower()
+    if audit_channel and audit_channel not in {
+        "oppo", "vivo", "xiaomi", "huawei", "honor",
+        "qq", "baidu", "toutiao", "kuaishou", "guangdiantong",
+    }:
+        raise ApiError("不支持的审核渠道: %s" % audit_channel)
+    audit_status = str(payload.get("auditStatus") or "audit").strip().lower()
+    if audit_status not in {"audit", "online", "advertising"}:
+        raise ApiError("不支持的审核状态: %s" % audit_status)
+    apply_audit_gate_policy(
+        config,
+        package_name,
+        audit_gate_every_launch,
+        channel=audit_channel,
+        status=audit_status,
+    )
     test.update(
         {
             "fastbot_duration_minutes": integer("duration", int(test.get("fastbot_duration_minutes", 10) or 10), 1, 1440),

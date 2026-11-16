@@ -79,6 +79,8 @@ const initialConfig: TestConfig = {
   navigationSteps: 0,
   startupPage: "",
   auditGateEveryLaunch: true,
+  auditChannel: "",
+  auditStatus: "audit",
 };
 
 const DRAFT_CACHE_KEY = "fastbot-console-draft-v2";
