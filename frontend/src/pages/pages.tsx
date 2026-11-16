@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   Activity, AlertTriangle, BarChart3, BatteryMedium, Bug, Camera, Check, CheckCircle2,
   ChevronDown, ChevronRight, CircleStop, Clock3, CloudOff, Copy, Download, ExternalLink,
@@ -110,6 +110,10 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
   } | null>(null);
   const [dragDropping, setDragDropping] = useState(false);
   const [receivedGroup, setReceivedGroup] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+  const magnetRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const previewIdRef = useRef<string | null>(null);
   const groupOf = new Map<string, string>();
   groups.forEach((group) => group.devices.forEach((serial) => groupOf.set(serial, group.id)));
   const ungroupedDevices = devices.filter((device) => !groupOf.has(device.serial));
@@ -163,15 +167,59 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
         rafRef.current = null;
         return;
       }
+      let hit = (document.elementFromPoint(session.x, session.y) as HTMLElement | null)?.closest("[data-group-drop]") as HTMLElement | null;
+      if (!hit) {
+        // Magnetic snap: the nearest folder within reach wins even if the
+        // pointer is still beside it.
+        let bestDistance = 140;
+        document.querySelectorAll<HTMLElement>("[data-group-drop]").forEach((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const distance = Math.hypot(session.x - (rect.left + rect.width / 2), session.y - (rect.top + rect.height / 2));
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            hit = candidate;
+          }
+        });
+      }
+      const targetId = hit?.dataset.groupDrop ?? null;
       const position = ghostPosRef.current;
-      position.x += (session.x - position.x) * 0.38;
-      position.y += (session.y - position.y) * 0.38;
+      let targetX = session.x;
+      let targetY = session.y;
+      if (hit) {
+        const rect = hit.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        magnetRef.current = { id: targetId ?? "", x: centerX, y: centerY };
+        targetX = session.x * 0.55 + centerX * 0.45;
+        targetY = session.y * 0.55 + centerY * 0.45;
+      } else {
+        magnetRef.current = null;
+      }
+      position.x += (targetX - position.x) * 0.36;
+      position.y += (targetY - position.y) * 0.36;
       if (ghostRef.current) {
         ghostRef.current.style.transform = `translate3d(${position.x - 20}px, ${position.y - 20}px, 0)`;
       }
-      const hit = (document.elementFromPoint(session.x, session.y) as HTMLElement | null)?.closest("[data-group-drop]") as HTMLElement | null;
-      const targetId = hit?.dataset.groupDrop ?? null;
       setDropTarget((previous) => (previous === targetId ? previous : targetId));
+      if (targetId && targetId !== "__none__" && hit) {
+        if (previewIdRef.current && previewIdRef.current !== targetId) {
+          previewIdRef.current = null;
+          setPreview(null);
+        }
+        if (previewTimerRef.current === null && previewIdRef.current !== targetId) {
+          const rect = hit.getBoundingClientRect();
+          previewTimerRef.current = window.setTimeout(() => {
+            previewTimerRef.current = null;
+            previewIdRef.current = targetId;
+            setPreview({ id: targetId, x: rect.left, y: rect.bottom + 10 });
+          }, 420);
+        }
+      } else if (previewTimerRef.current !== null || previewIdRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current ?? undefined);
+        previewTimerRef.current = null;
+        previewIdRef.current = null;
+        setPreview(null);
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -193,18 +241,37 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
       setDropTarget(null);
       return;
     }
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+    previewIdRef.current = null;
+    setPreview(null);
+    const magnet = magnetRef.current;
+    magnetRef.current = null;
     const hit = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest("[data-group-drop]") as HTMLElement | null;
-    const targetId = hit?.dataset.groupDrop ?? null;
-    if (hit && ghostRef.current) {
-      const rect = hit.getBoundingClientRect();
+    const targetId = hit?.dataset.groupDrop ?? magnet?.id ?? null;
+    const targetX = magnet ? magnet.x : (hit ? hit.getBoundingClientRect().left + hit.getBoundingClientRect().width / 2 : event.clientX);
+    const targetY = magnet ? magnet.y : (hit ? hit.getBoundingClientRect().top + hit.getBoundingClientRect().height / 2 : event.clientY);
+    if (targetId && ghostRef.current) {
       ghostRef.current.style.transition = "transform .22s cubic-bezier(.4, 0, .2, 1)";
-      ghostRef.current.style.transform = `translate3d(${rect.left + rect.width / 2 - 20}px, ${rect.top + rect.height / 2 - 20}px, 0)`;
+      ghostRef.current.style.transform = `translate3d(${targetX - 20}px, ${targetY - 20}px, 0)`;
     }
     setDragDropping(true);
     setDropTarget(null);
     window.setTimeout(() => {
       if (targetId) {
-        onMoveDevices(session.serials, targetId === "__none__" ? null : targetId);
+        const applyMove = () => onMoveDevices(session.serials, targetId === "__none__" ? null : targetId);
+        const documentWithTransitions = document as Document & { startViewTransition?: (callback: () => void) => unknown };
+        try {
+          if (typeof documentWithTransitions.startViewTransition === "function") {
+            documentWithTransitions.startViewTransition(() => flushSync(applyMove));
+          } else {
+            applyMove();
+          }
+        } catch {
+          applyMove();
+        }
         setReceivedGroup(targetId);
         window.setTimeout(() => setReceivedGroup(null), 560);
       }
@@ -218,26 +285,42 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
     <section className="panel page-panel">
       {createPortal(
         dragSerials.length > 0 ? (
-          <div className="drag-ghost" ref={ghostRef}>
-            <div className={`drag-ghost-stack ${dragDropping ? "is-dropping" : ""}`}>
-              {Array.from({ length: Math.min(dragSerials.length, 7) }).map((_, index) => (
-                <span
-                  key={index}
-                  className="drag-ghost-icon"
-                  style={{
-                    transform: (() => {
-                      const total = Math.min(dragSerials.length, 7);
-                      const angle = (index - (total - 1) / 2) * 7;
-                      return `translate(${index * 9 + angle * 0.9}px, ${Math.abs(angle) * 0.55}px) rotate(${angle}deg)`;
-                    })(),
-                    zIndex: index + 1,
-                    animationDelay: `${index * 26}ms`,
-                  }}
-                />
-              ))}
-              {dragSerials.length > 1 && <b className="drag-ghost-count">{dragSerials.length}</b>}
+          <>
+            <div className="drag-ghost" ref={ghostRef}>
+              <div className={`drag-ghost-stack ${dragDropping ? "is-dropping" : ""}`}>
+                {Array.from({ length: Math.min(dragSerials.length, 7) }).map((_, index) => (
+                  <span
+                    key={index}
+                    className="drag-ghost-icon"
+                    style={{
+                      transform: (() => {
+                        const total = Math.min(dragSerials.length, 7);
+                        const angle = (index - (total - 1) / 2) * 7;
+                        return `translate(${index * 9 + angle * 0.9}px, ${Math.abs(angle) * 0.55}px) rotate(${angle}deg)`;
+                      })(),
+                      zIndex: index + 1,
+                      animationDelay: `${index * 26}ms`,
+                    }}
+                  />
+                ))}
+                {dragSerials.length > 1 && <b className="drag-ghost-count">{dragSerials.length}</b>}
+              </div>
             </div>
-          </div>
+            {preview && (() => {
+              const group = groups.find((item) => item.id === preview.id);
+              const members = group ? devices.filter((device) => group.devices.includes(device.serial)) : [];
+              return (
+                <div className="group-preview" style={{ left: preview.x, top: preview.y }}>
+                  <strong>{group?.name || "未分组"}<b>{members.length}</b></strong>
+                  <div className="group-preview-list">
+                    {members.slice(0, 6).map((device) => <span key={device.serial}>{device.alias || device.serial}</span>)}
+                    {members.length > 6 && <span>+{members.length - 6}</span>}
+                    {!members.length && <em>空分组</em>}
+                  </div>
+                </div>
+              );
+            })()}
+          </>
         ) : null,
         document.body,
       )}

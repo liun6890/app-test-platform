@@ -1306,3 +1306,28 @@ body.dragging-devices { user-select: none; -webkit-user-select: none; cursor: gr
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+
+/* 拖拽磁吸、悬停预览与页面过渡 */
+.group-preview {
+  position: fixed; z-index: 10000; min-width: 180px; max-width: 280px; padding: 10px 12px;
+  background: #fff; border: 1px solid var(--line, #e3e8ee); border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(15, 40, 70, .18);
+  animation: preview-in .18s cubic-bezier(.2, 1.2, .4, 1);
+}
+.group-preview strong { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: #243b53; }
+.group-preview strong b { background: #eef6f2; color: #2f8f6b; border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+.group-preview-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.group-preview-list span {
+  font-size: 11px; padding: 3px 8px; background: #f4f7fa; border-radius: 999px; color: #4a5a6a;
+  max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.group-preview-list em { font-size: 11px; color: #9aa7b4; }
+.device-group-folder.is-drop { box-shadow: 0 0 0 3px rgba(47, 143, 107, .18), 0 10px 22px rgba(47, 143, 107, .22); }
+.device-table tbody tr { transition: background .15s ease; }
+.device-table tbody tr:hover { background: #f7fafc; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .22s; }
+@keyframes preview-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
