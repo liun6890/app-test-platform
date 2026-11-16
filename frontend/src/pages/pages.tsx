@@ -96,6 +96,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
   const [editingGroupName, setEditingGroupName] = useState("");
   const [dragSerials, setDragSerials] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const dragGhostRef = useRef<HTMLDivElement | null>(null);
   const groupOf = new Map<string, string>();
   groups.forEach((group) => group.devices.forEach((serial) => groupOf.set(serial, group.id)));
   const ungroupedDevices = devices.filter((device) => !groupOf.has(device.serial));
@@ -106,11 +107,43 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
       : devices.filter((device) => groupOf.get(device.serial) === activeGroup);
   const groupNameOf = (serial: string) => groups.find((group) => group.id === groupOf.get(serial))?.name || "未分组";
 
+  function clearDragGhost() {
+    if (dragGhostRef.current) {
+      dragGhostRef.current.remove();
+      dragGhostRef.current = null;
+    }
+  }
+
+  function buildDragGhost(count: number): HTMLDivElement {
+    clearDragGhost();
+    const ghost = document.createElement("div");
+    ghost.className = "drag-ghost";
+    const visible = Math.min(Math.max(1, count), 7);
+    for (let index = 0; index < visible; index += 1) {
+      const icon = document.createElement("span");
+      icon.className = "drag-ghost-icon";
+      icon.style.transform = `translate(${index * 8}px, ${index * 8}px)`;
+      icon.style.zIndex = String(index + 1);
+      ghost.appendChild(icon);
+    }
+    if (count > 1) {
+      const badge = document.createElement("b");
+      badge.className = "drag-ghost-count";
+      badge.textContent = String(count);
+      ghost.appendChild(badge);
+    }
+    document.body.appendChild(ghost);
+    dragGhostRef.current = ghost;
+    return ghost;
+  }
+
   function startDeviceDrag(event: DragEvent, serial: string) {
     const payload = selected.includes(serial) && selected.length > 1 ? selected : [serial];
     setDragSerials(payload);
     event.dataTransfer.setData("text/plain", payload.join(","));
     event.dataTransfer.effectAllowed = "move";
+    const ghost = buildDragGhost(payload.length);
+    event.dataTransfer.setDragImage(ghost, 18, 18);
   }
 
   function finishDeviceDrop(groupId: string | null) {
@@ -201,7 +234,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
           <div className="device-table-wrap">
             <table className="data-table device-table">
               <thead><tr><th className="check-column"><span className="sr-only">选择</span></th><th>设备</th><th>系统</th><th>连接状态</th><th>电量</th><th>当前任务</th><th><span className="sr-only">操作</span></th></tr></thead>
-              <tbody>{visibleDevices.map((device) => <tr key={device.serial} draggable onDragStart={(event) => startDeviceDrag(event, device.serial)} onDragEnd={() => { setDragSerials([]); setDropTarget(null); }} className={`${selected.includes(device.serial) ? "is-selected" : ""} ${dragSerials.includes(device.serial) ? "is-dragging" : ""}`}>
+              <tbody>{visibleDevices.map((device) => <tr key={device.serial} draggable onDragStart={(event) => startDeviceDrag(event, device.serial)} onDragEnd={() => { clearDragGhost(); setDragSerials([]); setDropTarget(null); }} className={`${selected.includes(device.serial) ? "is-selected" : ""} ${dragSerials.includes(device.serial) ? "is-dragging" : ""}`}>
                 <td><button className={`checkbox ${selected.includes(device.serial) ? "is-checked" : ""}`} type="button" disabled={!selectable(device)} onClick={() => onToggle(device.serial)} aria-label={`选择 ${device.alias}`}>{selected.includes(device.serial) && <Check size={14} />}</button></td>
                 <td><div className="device-identity"><span className="device-avatar"><Smartphone size={20} /></span><div><strong>{device.alias}</strong><small>{device.serial} · {groupNameOf(device.serial)}</small></div></div></td>
                 <td><strong className="table-main">{device.brand} {device.model}</strong><small className="table-sub">安卓 {device.android} · 开发接口 {device.sdk}</small></td>
@@ -212,7 +245,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
               </tr>)}</tbody>
             </table>
           </div>
-          <div className="device-mobile-list">{visibleDevices.map((device) => <div draggable onDragStart={(event) => startDeviceDrag(event, device.serial)} onDragEnd={() => { setDragSerials([]); setDropTarget(null); }} className={`device-mobile-item ${selected.includes(device.serial) ? "is-selected" : ""}`} key={device.serial}><button className="device-mobile-select" type="button" disabled={!selectable(device)} onClick={() => onToggle(device.serial)}><span className="device-avatar"><Smartphone size={20} /></span><span className="device-mobile-copy"><strong>{device.alias}</strong><small>{device.serial} · 安卓 {device.android}</small><span><StatusBadge status={device.status} /><em>{device.battery == null ? "--" : `${device.battery}%`}</em></span>{device.jobId ? <small className="device-task-meta">第 {device.cycle || 1} 轮{device.remainingSeconds != null ? ` · 剩余 ${Math.ceil(device.remainingSeconds)} 秒` : ""}{device.resumeAttempts ? ` · 已恢复 ${device.resumeAttempts} 次` : ""}</small> : null}{device.lastError ? <small className="device-task-error" title={localizeRuntimeText(device.lastError)}>{localizeRuntimeText(device.lastError)}</small> : null}</span><span className={`checkbox ${selected.includes(device.serial) ? "is-checked" : ""}`}>{selected.includes(device.serial) && <Check size={14} />}</span></button>{device.jobId ? <div className="device-mobile-actions">{device.canResume ? <button className="device-mobile-action resume-button" type="button" onClick={() => onResume(device.jobId as string, device.serial)} disabled={busyAction === `resume-${device.serial}`}><Play size={15} fill="currentColor" />继续</button> : null}{device.canEnd ? <button className="device-mobile-action manual-end-button" type="button" onClick={() => onEnd(device.jobId as string, device.serial)} disabled={busyAction === `end-${device.serial}`}>{busyAction === `end-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <XCircle size={15} />}结束本设备</button> : null}<button className="device-mobile-action" type="button" onClick={() => onStop(device.serial)} disabled={busyAction === `stop-${device.serial}`}>{busyAction === `stop-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <CircleStop size={15} />}暂停</button></div> : null}</div>)}</div>
+          <div className="device-mobile-list">{visibleDevices.map((device) => <div draggable onDragStart={(event) => startDeviceDrag(event, device.serial)} onDragEnd={() => { clearDragGhost(); setDragSerials([]); setDropTarget(null); }} className={`device-mobile-item ${selected.includes(device.serial) ? "is-selected" : ""}`} key={device.serial}><button className="device-mobile-select" type="button" disabled={!selectable(device)} onClick={() => onToggle(device.serial)}><span className="device-avatar"><Smartphone size={20} /></span><span className="device-mobile-copy"><strong>{device.alias}</strong><small>{device.serial} · 安卓 {device.android}</small><span><StatusBadge status={device.status} /><em>{device.battery == null ? "--" : `${device.battery}%`}</em></span>{device.jobId ? <small className="device-task-meta">第 {device.cycle || 1} 轮{device.remainingSeconds != null ? ` · 剩余 ${Math.ceil(device.remainingSeconds)} 秒` : ""}{device.resumeAttempts ? ` · 已恢复 ${device.resumeAttempts} 次` : ""}</small> : null}{device.lastError ? <small className="device-task-error" title={localizeRuntimeText(device.lastError)}>{localizeRuntimeText(device.lastError)}</small> : null}</span><span className={`checkbox ${selected.includes(device.serial) ? "is-checked" : ""}`}>{selected.includes(device.serial) && <Check size={14} />}</span></button>{device.jobId ? <div className="device-mobile-actions">{device.canResume ? <button className="device-mobile-action resume-button" type="button" onClick={() => onResume(device.jobId as string, device.serial)} disabled={busyAction === `resume-${device.serial}`}><Play size={15} fill="currentColor" />继续</button> : null}{device.canEnd ? <button className="device-mobile-action manual-end-button" type="button" onClick={() => onEnd(device.jobId as string, device.serial)} disabled={busyAction === `end-${device.serial}`}>{busyAction === `end-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <XCircle size={15} />}结束本设备</button> : null}<button className="device-mobile-action" type="button" onClick={() => onStop(device.serial)} disabled={busyAction === `stop-${device.serial}`}>{busyAction === `stop-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <CircleStop size={15} />}暂停</button></div> : null}</div>)}</div>
         </>
       )}
     </section>

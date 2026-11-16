@@ -1243,3 +1243,23 @@ body {
   45% { transform: scale(1.06); box-shadow: 0 10px 22px rgba(47, 143, 107, .22); }
   100% { transform: scale(1); }
 }
+
+
+/* 拖拽时的设备图标堆叠预览 */
+.drag-ghost { position: fixed; top: -160px; left: -160px; width: 104px; height: 104px; pointer-events: none; z-index: 9999; }
+.drag-ghost-icon {
+  position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 10px;
+  background: linear-gradient(135deg, #3ba37a, #4c8bf5);
+  border: 2px solid #fff; box-shadow: 0 6px 14px rgba(20, 45, 70, .35);
+  transition: transform .12s ease;
+}
+.drag-ghost-icon::after {
+  content: ""; position: absolute; left: 9px; top: 7px; right: 9px; bottom: 7px;
+  border: 2px solid rgba(255, 255, 255, .95); border-radius: 4px; box-sizing: border-box;
+}
+.drag-ghost-count {
+  position: absolute; right: 0; bottom: 0; min-width: 24px; height: 24px; padding: 0 5px;
+  border-radius: 999px; background: #ff6b3d; border: 2px solid #fff; color: #fff;
+  font: 700 12px/20px system-ui, sans-serif; text-align: center; z-index: 999;
+  box-shadow: 0 4px 10px rgba(255, 107, 61, .4);
+}
