@@ -158,7 +158,9 @@ def apply_audit_gate_policy(
             if action not in {"launch", "launch_app"}:
                 break
             insert_at += 1
-        steps.insert(insert_at, _audit_gate_step(package_name))
+        steps.insert(
+            insert_at, _audit_gate_step(package_name, channel, status)
+        )
     scenario["navigation_steps"] = steps
 
     per_device = scenario.get("navigation_steps_by_device")
@@ -173,7 +175,9 @@ def apply_audit_gate_policy(
                     if action not in {"launch", "launch_app"}:
                         break
                     insert_at += 1
-                normalized.insert(insert_at, _audit_gate_step(package_name))
+                normalized.insert(
+                    insert_at, _audit_gate_step(package_name, channel, status)
+                )
             updated_by_device[str(serial)] = normalized
         scenario["navigation_steps_by_device"] = updated_by_device
 

@@ -3567,6 +3567,25 @@ class AuditGateOptionTests(unittest.TestCase):
             "com.example.app:id/xiaomiRadioButton", recovery["channel_resource_id"]
         )
 
+    def test_navigation_step_carries_the_selected_channel(self):
+        config = {"scenario": {"navigation_steps": [{"action": "launch_app"}]}}
+        console_scenario.apply_audit_gate_policy(
+            config, "com.example.app", True, channel="oppo", status="online"
+        )
+        step = next(
+            item
+            for item in config["scenario"]["navigation_steps"]
+            if item["action"] == "complete_audit_gate"
+        )
+        self.assertEqual(
+            "com.example.app:id/onlineRadioButton",
+            step["audit_locator"]["resourceId"],
+        )
+        self.assertEqual(
+            "com.example.app:id/oppoRadioButton",
+            step["channel_locator"]["resourceId"],
+        )
+
     def test_invalid_channel_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
