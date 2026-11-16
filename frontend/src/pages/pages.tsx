@@ -109,6 +109,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
     y: number;
   } | null>(null);
   const [dragDropping, setDragDropping] = useState(false);
+  const [receivedGroup, setReceivedGroup] = useState<string | null>(null);
   const groupOf = new Map<string, string>();
   groups.forEach((group) => group.devices.forEach((serial) => groupOf.set(serial, group.id)));
   const ungroupedDevices = devices.filter((device) => !groupOf.has(device.serial));
@@ -194,13 +195,23 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
     }
     const hit = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest("[data-group-drop]") as HTMLElement | null;
     const targetId = hit?.dataset.groupDrop ?? null;
-    if (targetId) onMoveDevices(session.serials, targetId === "__none__" ? null : targetId);
+    if (hit && ghostRef.current) {
+      const rect = hit.getBoundingClientRect();
+      ghostRef.current.style.transition = "transform .22s cubic-bezier(.4, 0, .2, 1)";
+      ghostRef.current.style.transform = `translate3d(${rect.left + rect.width / 2 - 20}px, ${rect.top + rect.height / 2 - 20}px, 0)`;
+    }
     setDragDropping(true);
     setDropTarget(null);
     window.setTimeout(() => {
+      if (targetId) {
+        onMoveDevices(session.serials, targetId === "__none__" ? null : targetId);
+        setReceivedGroup(targetId);
+        window.setTimeout(() => setReceivedGroup(null), 560);
+      }
       setDragDropping(false);
       setDragSerials([]);
-    }, 220);
+      ghostRef.current?.removeAttribute("style");
+    }, 200);
   }
 
   return (
@@ -213,7 +224,15 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
                 <span
                   key={index}
                   className="drag-ghost-icon"
-                  style={{ transform: `translate(${index * 7}px, ${index * 7}px)`, zIndex: index + 1, animationDelay: `${index * 28}ms` }}
+                  style={{
+                    transform: (() => {
+                      const total = Math.min(dragSerials.length, 7);
+                      const angle = (index - (total - 1) / 2) * 7;
+                      return `translate(${index * 9 + angle * 0.9}px, ${Math.abs(angle) * 0.55}px) rotate(${angle}deg)`;
+                    })(),
+                    zIndex: index + 1,
+                    animationDelay: `${index * 26}ms`,
+                  }}
                 />
               ))}
               {dragSerials.length > 1 && <b className="drag-ghost-count">{dragSerials.length}</b>}
@@ -237,7 +256,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
               <Folder size={18} /><span>全部</span><b>{devices.length}</b>
             </button>
             <div
-              className={`device-group-folder is-ungrouped ${activeGroup === "__none__" ? "is-active" : ""} ${dropTarget === "__none__" ? "is-drop" : ""}`}
+              className={`device-group-folder is-ungrouped ${activeGroup === "__none__" ? "is-active" : ""} ${dropTarget === "__none__" ? "is-drop" : ""} ${receivedGroup === "__none__" ? "is-receiving" : ""}`}
               onClick={() => setActiveGroup("__none__")}
               data-group-drop="__none__"
             >
@@ -248,7 +267,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
               return (
                 <div
                   key={group.id}
-                  className={`device-group-folder color-${group.color} ${activeGroup === group.id ? "is-active" : ""} ${dropTarget === group.id ? "is-drop" : ""}`}
+                  className={`device-group-folder color-${group.color} ${activeGroup === group.id ? "is-active" : ""} ${dropTarget === group.id ? "is-drop" : ""} ${receivedGroup === group.id ? "is-receiving" : ""}`}
                   onClick={() => setActiveGroup(group.id)}
                   onDoubleClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
                   data-group-drop={group.id}
@@ -295,7 +314,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
           {selected.length > 0 && <div className={`selection-health ${unavailable.length ? "is-warning" : ""}`}>
             {unavailable.length ? <><AlertTriangle size={18} /><div><strong>{unavailable.length} 台已选设备当前不可启动</strong><span>{unavailable.join("、")}。已保留选择，请恢复设备后刷新，或手动取消选择。</span></div></> : <><CheckCircle2 size={18} /><div><strong>{selected.length} 台设备已就绪，可进入配置</strong><span>压测组件同步和启动前预检都会使用这份已保存的选择。</span></div></>}
           </div>}
-          <div className="device-table-wrap">
+          <div className="device-table-wrap" key={activeGroup ?? "all"}>
             <table className="data-table device-table">
               <thead><tr><th className="check-column"><span className="sr-only">选择</span></th><th>设备</th><th>系统</th><th>连接状态</th><th>电量</th><th>当前任务</th><th><span className="sr-only">操作</span></th></tr></thead>
               <tbody>{visibleDevices.map((device) => <tr key={device.serial} onPointerDown={(event) => beginPointerDrag(event, device.serial)} className={`${selected.includes(device.serial) ? "is-selected" : ""} ${dragSerials.includes(device.serial) ? "is-dragging" : ""}`}>
