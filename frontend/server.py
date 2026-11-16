@@ -1737,7 +1737,20 @@ def list_devices() -> List[Dict[str, Any]]:
 def elapsed_text(job: Optional[Mapping[str, Any]]) -> str:
     if not job:
         return "00:00"
-    seconds = max(0, int(time.time() - float(job.get("startedEpoch") or time.time())))
+    # Terminal jobs must freeze at their finish time; using ``now`` made a
+    # completed four-hour run show "70:28:12" two days later.
+    started = float(job.get("startedEpoch") or time.time())
+    finished_raw = job.get("finishedAt")
+    if finished_raw:
+        try:
+            finished = datetime.fromisoformat(
+                str(finished_raw).replace("Z", "+00:00")
+            ).timestamp()
+        except (TypeError, ValueError, OverflowError, OSError):
+            finished = time.time()
+    else:
+        finished = time.time()
+    seconds = max(0, int(finished - started))
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return "%02d:%02d:%02d" % (hours, minutes, seconds)

@@ -3508,5 +3508,28 @@ class ReportPathCacheTests(unittest.TestCase):
             self.assertEqual(tmp, value["jobDir"])
 
 
+class ElapsedTextTests(unittest.TestCase):
+    def test_finished_job_freezes_its_elapsed_time(self):
+        import datetime as _dt
+
+        started = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=5)
+        finished = started + _dt.timedelta(hours=4, minutes=5)
+        job = {
+            "startedEpoch": started.timestamp(),
+            "finishedAt": finished.isoformat(),
+        }
+        self.assertEqual("04:05:00", server.elapsed_text(job))
+
+    def test_running_job_keeps_counting(self):
+        import datetime as _dt
+
+        job = {
+            "startedEpoch": (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=30)).timestamp(),
+            "finishedAt": None,
+        }
+        value = server.elapsed_text(job)
+        self.assertTrue(value.startswith("00:00:3"), value)
+
+
 if __name__ == "__main__":
     unittest.main()
