@@ -54,7 +54,7 @@ import { cycleStatusLabel, deviceDiagnosis, evidenceExcerpt, failedCycleStatuses
 import type { Diagnosis, DiagnosisTone } from "./lib/diagnosis";
 import { TestReportDialog } from "./pages/report-detail";
 import { RunsPage } from "./pages/runs";
-import type { ConfigTemplate, CrashEvidence, Device, DeviceStatus, Draft, IssueEvidence, PreflightResult, Report, ReplayProgress, Run, TestConfig, TestReport, View } from "./types";
+import type { ConfigTemplate, CrashEvidence, Device, DeviceGroup, DeviceStatus, Draft, IssueEvidence, PreflightResult, Report, ReplayProgress, Run, TestConfig, TestReport, View } from "./types";
 
 const initialConfig: TestConfig = {
   configFile: "settings.json",
@@ -116,6 +116,7 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [deviceGroups, setDeviceGroups] = useState<DeviceGroup[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [testReports, setTestReports] = useState<TestReport[]>([]);
@@ -158,11 +159,12 @@ function App() {
     pollingRef.current = true;
     if (manual) setRefreshing(true);
     try {
-      const [deviceResult, runResult, reportResult, testReportResult] = await Promise.all([
+      const [deviceResult, runResult, reportResult, testReportResult, groupResult] = await Promise.all([
         api.devices(),
         api.runs(true),
         withReports ? api.reports() : Promise.resolve(null),
         withReports ? api.testReports() : Promise.resolve(null),
+        api.deviceGroups(),
       ]);
       if (dataGenerationRef.current !== generation) {
         // A stop/start/resume landed while this poll was in flight; its data is
@@ -170,6 +172,7 @@ function App() {
         return;
       }
       setDevices(deviceResult.devices);
+      setDeviceGroups(groupResult.groups);
       setRuns(runResult.runs);
       const activeDeviceSerials = new Set(
         runResult.runs.filter(isActiveRun).flatMap((run) => run.devices),
@@ -380,6 +383,55 @@ function App() {
 
   function clearDeviceSelection() {
     applySelectedDevices([]);
+  }
+
+  function persistDeviceGroups(next: DeviceGroup[]) {
+    const previous = deviceGroups;
+    setDeviceGroups(next);
+    void api.saveDeviceGroups(next)
+      .then((saved) => setDeviceGroups(saved.groups))
+      .catch((error) => {
+        setDeviceGroups(previous);
+        showToast(messageOf(error), "error");
+      });
+  }
+
+  function createDeviceGroup(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const colors = ["blue", "green", "orange", "purple", "pink", "teal"];
+    persistDeviceGroups([
+      ...deviceGroups,
+      {
+        id: `g${Date.now().toString(36)}`,
+        name: trimmed,
+        color: colors[deviceGroups.length % colors.length],
+        devices: [],
+      },
+    ]);
+  }
+
+  function renameDeviceGroup(id: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    persistDeviceGroups(deviceGroups.map((group) => (group.id === id ? { ...group, name: trimmed } : group)));
+  }
+
+  function deleteDeviceGroup(id: string) {
+    persistDeviceGroups(deviceGroups.filter((group) => group.id !== id));
+  }
+
+  function moveDevicesToGroup(serials: string[], groupId: string | null) {
+    const moving = new Set(serials);
+    const next = deviceGroups.map((group) => ({
+      ...group,
+      devices: group.devices.filter((serial) => !moving.has(serial)),
+    }));
+    if (groupId) {
+      const target = next.find((group) => group.id === groupId);
+      if (target) target.devices = [...target.devices, ...serials];
+    }
+    persistDeviceGroups(next);
   }
 
   function configureSelectedDevices() {
@@ -664,7 +716,7 @@ function App() {
           {loading ? <PageLoading /> : (
             <>
               {view === "overview" && <Overview devices={devices} runs={runs} reports={reports} onNavigate={navigate} onStop={stopDevice} onResume={resumeDevice} onEnd={endDevice} busyAction={busyAction} />}
-              {view === "devices" && <DevicesPage devices={devices} selected={selectedDevices} refreshing={refreshing} busyAction={busyAction} onToggle={toggleDevice} onSelectReady={selectReadyDevices} onClear={clearDeviceSelection} onRefresh={() => void refreshData(true, true)} onSync={() => void syncFastbot()} onConfigure={configureSelectedDevices} onStop={(serial) => void stopDevice(serial)} onResume={resumeDevice} onEnd={endDevice} />}
+              {view === "devices" && <DevicesPage devices={devices} groups={deviceGroups} selected={selectedDevices} refreshing={refreshing} busyAction={busyAction} onToggle={toggleDevice} onSelectReady={selectReadyDevices} onClear={clearDeviceSelection} onRefresh={() => void refreshData(true, true)} onSync={() => void syncFastbot()} onConfigure={configureSelectedDevices} onStop={(serial) => void stopDevice(serial)} onResume={resumeDevice} onEnd={endDevice} onCreateGroup={createDeviceGroup} onRenameGroup={renameDeviceGroup} onDeleteGroup={deleteDeviceGroup} onMoveDevices={moveDevicesToGroup} />}
               {view === "config" && <ConfigPage config={config} templates={configTemplates} devices={devices} selectedDevices={selectedDevices} preflight={preflight} setConfig={applyConfig} uploading={busyAction === "upload"} starting={busyAction === "start"} onUpload={uploadApk} onStart={() => void startRun()} onManageDevices={() => navigate("devices")} />}
               {view === "runs" && <RunsPage runs={runs} devices={devices} busyAction={busyAction} onStop={(run) => void stopRun(run)} onResume={resumeDevice} onEnd={endDevice} onConfirmInstall={(run) => void confirmInstall(run)} onNavigate={navigate} />}
               {view === "reports" && <ReportsPage items={filteredTestReports} query={reportQuery} status={reportStatus} onQuery={setReportQuery} onStatus={setReportStatus} onOpen={setActiveTestReport} onDelete={(report) => void deleteTestReport(report)} deletingReportId={deletingReportId} onRefresh={() => void refreshData(true, true)} refreshing={refreshing} />}

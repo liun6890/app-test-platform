@@ -1,4 +1,4 @@
-import type { ApkUpload, ConfigTemplate, Device, Draft, PreflightResult, ReplayProgress, ReplayResult, Report, Run, TestConfig, TestReport } from "./types";
+import type { ApkUpload, ConfigTemplate, Device, DeviceGroup, Draft, PreflightResult, ReplayProgress, ReplayResult, Report, Run, TestConfig, TestReport } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -83,6 +83,9 @@ export const api = {
     }),
   startRun: (config: TestConfig, devices: string[]) =>
     request<Run>("/api/runs", jsonRequest("POST", { ...config, devices })),
+  deviceGroups: () => request<{ groups: DeviceGroup[] }>("/api/device-groups"),
+  saveDeviceGroups: (groups: DeviceGroup[]) =>
+    request<{ groups: DeviceGroup[] }>("/api/device-groups", jsonRequest("PUT", { groups })),
   preflightRun: (config: TestConfig, devices: string[]) =>
     request<PreflightResult>("/api/runs/preflight", jsonRequest("POST", { ...config, devices })),
   stopRun: (id: string) =>

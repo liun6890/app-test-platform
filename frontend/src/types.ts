@@ -70,6 +70,13 @@ export interface Device {
   reportStatus: string | null;
 }
 
+export interface DeviceGroup {
+  id: string;
+  name: string;
+  color: string;
+  devices: string[];
+}
+
 export interface TestConfig {
   configFile: string;
   workflowMode: "matched" | "generic";

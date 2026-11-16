@@ -128,6 +128,8 @@ DIST_ROOT = FRONTEND_ROOT / "dist"
 RUNTIME_ROOT = runtime_storage_root()
 UPLOAD_ROOT = RUNTIME_ROOT / "uploads"
 RUN_ROOT = RUNTIME_ROOT / "runs"
+DEVICE_GROUPS_PATH = RUNTIME_ROOT / "device_groups.json"
+DEVICE_GROUP_COLORS = ("blue", "green", "orange", "purple", "pink", "teal", "gray")
 DRAFT_PATH = RUNTIME_ROOT / "draft.json"
 # ``runtime`` may be a junction that is not writable by the account running
 # the web server.  New mutable state uses ``RUNTIME_ROOT`` above, but drafts
@@ -1563,6 +1565,74 @@ def _device_job_is_occupied(
         value.get("resume_state") or value.get("status") or ""
     ).strip().lower()
     return state not in TERMINAL_RESUME_STATES
+
+
+def _normalize_device_groups(raw: Any) -> List[Dict[str, Any]]:
+    """Validate and normalise the operator-edited device groups."""
+    groups_raw = raw.get("groups") if isinstance(raw, Mapping) else raw
+    if groups_raw is None:
+        groups_raw = []
+    if not isinstance(groups_raw, list):
+        raise ApiError("device groups must be a list", HTTPStatus.UNPROCESSABLE_ENTITY)
+    if len(groups_raw) > 50:
+        raise ApiError("最多支持 50 个设备组", HTTPStatus.UNPROCESSABLE_ENTITY)
+    groups: List[Dict[str, Any]] = []
+    seen_ids = set()
+    seen_names = set()
+    seen_devices = set()
+    for item in groups_raw:
+        if not isinstance(item, Mapping):
+            raise ApiError("每个设备组必须是对象", HTTPStatus.UNPROCESSABLE_ENTITY)
+        name = str(item.get("name") or "").strip()
+        if not name or len(name) > 32:
+            raise ApiError("设备组名称必须是 1-32 个字符", HTTPStatus.UNPROCESSABLE_ENTITY)
+        if name in seen_names:
+            raise ApiError("设备组名称重复: %s" % name, HTTPStatus.UNPROCESSABLE_ENTITY)
+        seen_names.add(name)
+        group_id = str(item.get("id") or "").strip() or uuid.uuid4().hex[:8]
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", group_id):
+            raise ApiError("设备组 id 无效: %s" % group_id, HTTPStatus.UNPROCESSABLE_ENTITY)
+        if group_id in seen_ids:
+            raise ApiError("设备组 id 重复: %s" % group_id, HTTPStatus.UNPROCESSABLE_ENTITY)
+        seen_ids.add(group_id)
+        color = str(item.get("color") or "blue").strip().lower()
+        if color not in DEVICE_GROUP_COLORS:
+            color = "blue"
+        devices_raw = item.get("devices") or []
+        if not isinstance(devices_raw, list):
+            raise ApiError("设备组的 devices 必须是数组", HTTPStatus.UNPROCESSABLE_ENTITY)
+        devices: List[str] = []
+        for value in devices_raw:
+            serial = str(value or "").strip()
+            if not serial or len(serial) > 64:
+                continue
+            if serial in seen_devices:
+                raise ApiError("设备 %s 同时出现在多个分组" % serial, HTTPStatus.UNPROCESSABLE_ENTITY)
+            seen_devices.add(serial)
+            devices.append(serial)
+        groups.append({"id": group_id, "name": name, "color": color, "devices": devices})
+    return groups
+
+
+def load_device_groups() -> List[Dict[str, Any]]:
+    path = DEVICE_GROUPS_PATH
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return _normalize_device_groups(raw)
+    except (OSError, ValueError, TypeError, ApiError):
+        return []
+
+
+def save_device_groups(raw: Any) -> List[Dict[str, Any]]:
+    groups = _normalize_device_groups(raw)
+    atomic_write_text(
+        DEVICE_GROUPS_PATH,
+        json.dumps({"groups": groups}, ensure_ascii=False, indent=2),
+    )
+    audit_event("save_device_groups", groups=len(groups))
+    return groups
 
 
 def list_devices() -> List[Dict[str, Any]]:
@@ -8195,6 +8265,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self.send_json({"configs": available_configs()})
             elif path == "/api/draft":
                 self.send_json(read_draft())
+            elif path == "/api/device-groups":
+                self.send_json({"groups": load_device_groups()})
             elif path == "/api/devices":
                 self.send_json({"devices": list_devices(), "refreshedAt": utc_now()})
             elif path == "/api/runs":
@@ -8315,9 +8387,13 @@ class ConsoleHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         try:
-            if urlparse(self.path).path != "/api/draft":
+            request_path = urlparse(self.path).path
+            if request_path == "/api/device-groups":
+                self.send_json({"groups": save_device_groups(self.read_json())})
+            elif request_path == "/api/draft":
+                self.send_json(save_draft(self.read_json()))
+            else:
                 raise ApiError("Not found", HTTPStatus.NOT_FOUND)
-            self.send_json(save_draft(self.read_json()))
         except ApiError as exc:
             self.send_json({"error": exc.message}, exc.status)
         except Exception as exc:

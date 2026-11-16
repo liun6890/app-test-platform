@@ -3617,5 +3617,50 @@ class AuditGateOptionTests(unittest.TestCase):
                     server.build_run_config(payload, root / "job")
 
 
+class DeviceGroupTests(unittest.TestCase):
+    def test_groups_normalise_and_generate_ids(self):
+        groups = server._normalize_device_groups(
+            {"groups": [{"name": "小米组", "color": "pink", "devices": ["a93adef2", "xw8"]}]}
+        )
+        self.assertEqual(1, len(groups))
+        self.assertTrue(groups[0]["id"])
+        self.assertEqual("pink", groups[0]["color"])
+        self.assertEqual(["a93adef2", "xw8"], groups[0]["devices"])
+
+    def test_device_cannot_belong_to_two_groups(self):
+        with self.assertRaises(server.ApiError):
+            server._normalize_device_groups(
+                {
+                    "groups": [
+                        {"name": "A", "devices": ["serial-1"]},
+                        {"name": "B", "devices": ["serial-1"]},
+                    ]
+                }
+            )
+
+    def test_duplicate_group_name_is_rejected(self):
+        with self.assertRaises(server.ApiError):
+            server._normalize_device_groups(
+                {"groups": [{"name": "A"}, {"name": "A"}]}
+            )
+
+    def test_unknown_color_falls_back_to_blue(self):
+        groups = server._normalize_device_groups(
+            {"groups": [{"name": "A", "color": "rainbow"}]}
+        )
+        self.assertEqual("blue", groups[0]["color"])
+
+    def test_save_and_load_roundtrip(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "device_groups.json"
+            with mock.patch.object(server, "DEVICE_GROUPS_PATH", path):
+                server.save_device_groups(
+                    {"groups": [{"name": "测试组", "color": "teal", "devices": ["s1"]}]}
+                )
+                loaded = server.load_device_groups()
+        self.assertEqual("测试组", loaded[0]["name"])
+        self.assertEqual(["s1"], loaded[0]["devices"])
+
+
 if __name__ == "__main__":
     unittest.main()

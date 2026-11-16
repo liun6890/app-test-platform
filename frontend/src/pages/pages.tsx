@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   Activity, AlertTriangle, BarChart3, BatteryMedium, Bug, Camera, Check, CheckCircle2,
   ChevronDown, ChevronRight, CircleStop, Clock3, CloudOff, Copy, Download, ExternalLink,
-  FileArchive, FileJson, Gauge, HardDrive, Info, ListFilter, LoaderCircle, MonitorSmartphone,
+  FileArchive, FileJson, Folder, FolderPlus, Gauge, HardDrive, Info, ListFilter, LoaderCircle, MonitorSmartphone,
   MoreHorizontal, Play, RefreshCw, RotateCcw, Search, Settings2, ShieldCheck, Smartphone,
   TerminalSquare, Trash2, Upload, Wifi, WifiOff, X, XCircle, Zap,
 } from "lucide-react";
@@ -13,7 +13,7 @@ import { phaseLabel, runStatusLabel } from "../lib/labels";
 import { runningDeviceCount, testDiagnosis } from "../lib/diagnosis";
 import { MAX_SAFE_WORKERS, isActiveRun, runProgress, taskDevicesForRun, configFromTemplate, preflightFailureDetails, validRunParameters } from "../lib/runs";
 import type {
-  ConfigTemplate, Device, DeviceStatus, PreflightResult, Report, Run, TestConfig, TestReport, View,
+  ConfigTemplate, Device, DeviceGroup, DeviceStatus, PreflightResult, Report, Run, TestConfig, TestReport, View,
 } from "../types";
 
 export function Overview({ devices, runs, reports, onNavigate, onStop, onResume, onEnd, busyAction }: { devices: Device[]; runs: Run[]; reports: Report[]; onNavigate: (view: View) => void; onStop: (serial: string) => void; onResume: (jobId: string, serial: string) => void; onEnd: (jobId: string, serial: string) => void; busyAction: string | null }) {
@@ -80,7 +80,7 @@ export function DeviceRunRow({ device, targetCycles, busy, resumeBusy, endBusy, 
   );
 }
 
-export function DevicesPage({ devices, selected, refreshing, busyAction, onToggle, onSelectReady, onClear, onRefresh, onSync, onConfigure, onStop, onResume, onEnd }: { devices: Device[]; selected: string[]; refreshing: boolean; busyAction: string | null; onToggle: (serial: string) => void; onSelectReady: () => void; onClear: () => void; onRefresh: () => void; onSync: () => void; onConfigure: () => void; onStop: (serial: string) => void; onResume: (jobId: string, serial: string) => void; onEnd: (jobId: string, serial: string) => void }) {
+export function DevicesPage({ devices, groups, selected, refreshing, busyAction, onToggle, onSelectReady, onClear, onRefresh, onSync, onConfigure, onStop, onResume, onEnd, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveDevices }: { devices: Device[]; groups: DeviceGroup[]; selected: string[]; refreshing: boolean; busyAction: string | null; onToggle: (serial: string) => void; onSelectReady: () => void; onClear: () => void; onRefresh: () => void; onSync: () => void; onConfigure: () => void; onStop: (serial: string) => void; onResume: (jobId: string, serial: string) => void; onEnd: (jobId: string, serial: string) => void; onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void; onMoveDevices: (serials: string[], groupId: string | null) => void }) {
   const selectedSet = new Set(selected);
   const readyForRun = (device: Device) => device.ready && !device.jobId;
   const selectable = (device: Device) => readyForRun(device) || selectedSet.has(device.serial);
@@ -89,6 +89,36 @@ export function DevicesPage({ devices, selected, refreshing, busyAction, onToggl
     return !device || !readyForRun(device);
   });
   const readyCount = devices.filter(readyForRun).length;
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  const [dragSerials, setDragSerials] = useState<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const groupOf = new Map<string, string>();
+  groups.forEach((group) => group.devices.forEach((serial) => groupOf.set(serial, group.id)));
+  const ungroupedDevices = devices.filter((device) => !groupOf.has(device.serial));
+  const visibleDevices = activeGroup === null
+    ? devices
+    : activeGroup === "__none__"
+      ? ungroupedDevices
+      : devices.filter((device) => groupOf.get(device.serial) === activeGroup);
+  const groupNameOf = (serial: string) => groups.find((group) => group.id === groupOf.get(serial))?.name || "未分组";
+
+  function startDeviceDrag(event: DragEvent, serial: string) {
+    const payload = selected.includes(serial) && selected.length > 1 ? selected : [serial];
+    setDragSerials(payload);
+    event.dataTransfer.setData("text/plain", payload.join(","));
+    event.dataTransfer.effectAllowed = "move";
+  }
+
+  function finishDeviceDrop(groupId: string | null) {
+    if (dragSerials.length) onMoveDevices(dragSerials, groupId);
+    setDragSerials([]);
+    setDropTarget(null);
+  }
+
   return (
     <section className="panel page-panel">
       <div className="section-toolbar">
@@ -101,6 +131,65 @@ export function DevicesPage({ devices, selected, refreshing, busyAction, onToggl
       </div>
       {!devices.length ? <EmptyState icon={WifiOff} title="没有发现调试设备" note="连接并授权设备后点击刷新" action={selected.length ? <button className="secondary-button" type="button" onClick={onClear}><X size={16} />清空已保存选择</button> : undefined} /> : (
         <>
+          <div className="device-groups-bar">
+            <button type="button" className={`device-group-folder is-all ${activeGroup === null ? "is-active" : ""}`} onClick={() => setActiveGroup(null)}>
+              <Folder size={18} /><span>全部</span><b>{devices.length}</b>
+            </button>
+            <div
+              className={`device-group-folder is-ungrouped ${activeGroup === "__none__" ? "is-active" : ""} ${dropTarget === "__none__" ? "is-drop" : ""}`}
+              onClick={() => setActiveGroup("__none__")}
+              onDragOver={(event) => { event.preventDefault(); setDropTarget("__none__"); }}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={(event) => { event.preventDefault(); finishDeviceDrop(null); }}
+            >
+              <Folder size={18} /><span>未分组</span><b>{ungroupedDevices.length}</b>
+            </div>
+            {groups.map((group) => {
+              const members = devices.filter((device) => group.devices.includes(device.serial));
+              return (
+                <div
+                  key={group.id}
+                  className={`device-group-folder color-${group.color} ${activeGroup === group.id ? "is-active" : ""} ${dropTarget === group.id ? "is-drop" : ""}`}
+                  onClick={() => setActiveGroup(group.id)}
+                  onDoubleClick={() => { setEditingGroupId(group.id); setEditingGroupName(group.name); }}
+                  onDragOver={(event) => { event.preventDefault(); setDropTarget(group.id); }}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={(event) => { event.preventDefault(); finishDeviceDrop(group.id); }}
+                >
+                  <Folder size={18} /><span>{group.name}</span><b>{members.length}</b>
+                  <button className="folder-delete" type="button" title="删除分组（设备回到未分组）" onClick={(event) => { event.stopPropagation(); onDeleteGroup(group.id); }}>
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+            {creatingGroup ? (
+              <input
+                autoFocus
+                className="folder-input"
+                value={newGroupName}
+                placeholder="分组名称"
+                onChange={(event) => setNewGroupName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") { onCreateGroup(newGroupName); setCreatingGroup(false); setNewGroupName(""); }
+                  if (event.key === "Escape") { setCreatingGroup(false); setNewGroupName(""); }
+                }}
+                onBlur={() => { if (newGroupName.trim()) onCreateGroup(newGroupName); setCreatingGroup(false); setNewGroupName(""); }}
+              />
+            ) : (
+              <button className="device-group-new" type="button" onClick={() => { setCreatingGroup(true); setNewGroupName(""); }}>
+                <FolderPlus size={18} />新建分组
+              </button>
+            )}
+          </div>
+          {editingGroupId && (
+            <div className="folder-rename-row">
+              <input autoFocus value={editingGroupName} onChange={(event) => setEditingGroupName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { onRenameGroup(editingGroupId, editingGroupName); setEditingGroupId(null); } if (event.key === "Escape") setEditingGroupId(null); }} />
+              <button type="button" onClick={() => { onRenameGroup(editingGroupId, editingGroupName); setEditingGroupId(null); }}>保存</button>
+              <button type="button" onClick={() => setEditingGroupId(null)}>取消</button>
+            </div>
+          )}
+          <p className="field-note">拖动设备行到文件夹即可分组；勾选多台后拖动可批量入组。双击分组可重命名。</p>
           <div className="device-selection-actions">
             <button className="secondary-button" type="button" onClick={onSelectReady} disabled={!readyCount}><CheckCircle2 size={17} />全选就绪设备</button>
             <button className="secondary-button" type="button" onClick={onClear} disabled={!selected.length}><X size={17} />清空选择</button>
@@ -112,9 +201,9 @@ export function DevicesPage({ devices, selected, refreshing, busyAction, onToggl
           <div className="device-table-wrap">
             <table className="data-table device-table">
               <thead><tr><th className="check-column"><span className="sr-only">选择</span></th><th>设备</th><th>系统</th><th>连接状态</th><th>电量</th><th>当前任务</th><th><span className="sr-only">操作</span></th></tr></thead>
-              <tbody>{devices.map((device) => <tr key={device.serial} className={selected.includes(device.serial) ? "is-selected" : ""}>
+              <tbody>{visibleDevices.map((device) => <tr key={device.serial} draggable onDragStart={(event) => startDeviceDrag(event, device.serial)} onDragEnd={() => { setDragSerials([]); setDropTarget(null); }} className={`${selected.includes(device.serial) ? "is-selected" : ""} ${dragSerials.includes(device.serial) ? "is-dragging" : ""}`}>
                 <td><button className={`checkbox ${selected.includes(device.serial) ? "is-checked" : ""}`} type="button" disabled={!selectable(device)} onClick={() => onToggle(device.serial)} aria-label={`选择 ${device.alias}`}>{selected.includes(device.serial) && <Check size={14} />}</button></td>
-                <td><div className="device-identity"><span className="device-avatar"><Smartphone size={20} /></span><div><strong>{device.alias}</strong><small>{device.serial}</small></div></div></td>
+                <td><div className="device-identity"><span className="device-avatar"><Smartphone size={20} /></span><div><strong>{device.alias}</strong><small>{device.serial} · {groupNameOf(device.serial)}</small></div></div></td>
                 <td><strong className="table-main">{device.brand} {device.model}</strong><small className="table-sub">安卓 {device.android} · 开发接口 {device.sdk}</small></td>
                 <td><StatusBadge status={device.status} /></td>
                 <td>{device.battery == null ? <span className="muted">—</span> : <span className={`battery ${device.battery < 40 ? "low" : ""}`}><BatteryMedium size={17} />{device.battery}%</span>}</td>
@@ -123,7 +212,7 @@ export function DevicesPage({ devices, selected, refreshing, busyAction, onToggl
               </tr>)}</tbody>
             </table>
           </div>
-          <div className="device-mobile-list">{devices.map((device) => <div className={`device-mobile-item ${selected.includes(device.serial) ? "is-selected" : ""}`} key={device.serial}><button className="device-mobile-select" type="button" disabled={!selectable(device)} onClick={() => onToggle(device.serial)}><span className="device-avatar"><Smartphone size={20} /></span><span className="device-mobile-copy"><strong>{device.alias}</strong><small>{device.serial} · 安卓 {device.android}</small><span><StatusBadge status={device.status} /><em>{device.battery == null ? "--" : `${device.battery}%`}</em></span>{device.jobId ? <small className="device-task-meta">第 {device.cycle || 1} 轮{device.remainingSeconds != null ? ` · 剩余 ${Math.ceil(device.remainingSeconds)} 秒` : ""}{device.resumeAttempts ? ` · 已恢复 ${device.resumeAttempts} 次` : ""}</small> : null}{device.lastError ? <small className="device-task-error" title={localizeRuntimeText(device.lastError)}>{localizeRuntimeText(device.lastError)}</small> : null}</span><span className={`checkbox ${selected.includes(device.serial) ? "is-checked" : ""}`}>{selected.includes(device.serial) && <Check size={14} />}</span></button>{device.jobId ? <div className="device-mobile-actions">{device.canResume ? <button className="device-mobile-action resume-button" type="button" onClick={() => onResume(device.jobId as string, device.serial)} disabled={busyAction === `resume-${device.serial}`}><Play size={15} fill="currentColor" />继续</button> : null}{device.canEnd ? <button className="device-mobile-action manual-end-button" type="button" onClick={() => onEnd(device.jobId as string, device.serial)} disabled={busyAction === `end-${device.serial}`}>{busyAction === `end-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <XCircle size={15} />}结束本设备</button> : null}<button className="device-mobile-action" type="button" onClick={() => onStop(device.serial)} disabled={busyAction === `stop-${device.serial}`}>{busyAction === `stop-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <CircleStop size={15} />}暂停</button></div> : null}</div>)}</div>
+          <div className="device-mobile-list">{visibleDevices.map((device) => <div draggable onDragStart={(event) => startDeviceDrag(event, device.serial)} onDragEnd={() => { setDragSerials([]); setDropTarget(null); }} className={`device-mobile-item ${selected.includes(device.serial) ? "is-selected" : ""}`} key={device.serial}><button className="device-mobile-select" type="button" disabled={!selectable(device)} onClick={() => onToggle(device.serial)}><span className="device-avatar"><Smartphone size={20} /></span><span className="device-mobile-copy"><strong>{device.alias}</strong><small>{device.serial} · 安卓 {device.android}</small><span><StatusBadge status={device.status} /><em>{device.battery == null ? "--" : `${device.battery}%`}</em></span>{device.jobId ? <small className="device-task-meta">第 {device.cycle || 1} 轮{device.remainingSeconds != null ? ` · 剩余 ${Math.ceil(device.remainingSeconds)} 秒` : ""}{device.resumeAttempts ? ` · 已恢复 ${device.resumeAttempts} 次` : ""}</small> : null}{device.lastError ? <small className="device-task-error" title={localizeRuntimeText(device.lastError)}>{localizeRuntimeText(device.lastError)}</small> : null}</span><span className={`checkbox ${selected.includes(device.serial) ? "is-checked" : ""}`}>{selected.includes(device.serial) && <Check size={14} />}</span></button>{device.jobId ? <div className="device-mobile-actions">{device.canResume ? <button className="device-mobile-action resume-button" type="button" onClick={() => onResume(device.jobId as string, device.serial)} disabled={busyAction === `resume-${device.serial}`}><Play size={15} fill="currentColor" />继续</button> : null}{device.canEnd ? <button className="device-mobile-action manual-end-button" type="button" onClick={() => onEnd(device.jobId as string, device.serial)} disabled={busyAction === `end-${device.serial}`}>{busyAction === `end-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <XCircle size={15} />}结束本设备</button> : null}<button className="device-mobile-action" type="button" onClick={() => onStop(device.serial)} disabled={busyAction === `stop-${device.serial}`}>{busyAction === `stop-${device.serial}` ? <LoaderCircle size={15} className="spin" /> : <CircleStop size={15} />}暂停</button></div> : null}</div>)}</div>
         </>
       )}
     </section>
