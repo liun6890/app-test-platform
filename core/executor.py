@@ -3588,6 +3588,7 @@ class TestExecutor:
         saw_gate = False
         awaiting_confirm = False
         audit_confirmed = False
+        channel_clicked = False
         clear_since: Optional[float] = None
         while time.monotonic() < deadline:
             try:
@@ -3678,6 +3679,22 @@ class TestExecutor:
                         audit_confirmed = True
                 time.sleep(0.25)
                 continue
+
+            channel_id = str(options.get("channel_resource_id", "")).strip()
+            if channel_id and not channel_clicked:
+                channel_node = self._find_ui_node(nodes, resource_id=channel_id)
+                if channel_node is not None:
+                    saw_gate = True
+                    clear_since = None
+                    logger.info(
+                        "Selecting audit channel before Fastbot on %s: %s",
+                        self.device_serial,
+                        channel_id,
+                    )
+                    if self._tap_ui_node_with_retry(channel_node, device=device):
+                        channel_clicked = True
+                    time.sleep(0.4)
+                    continue
 
             if audit_node is not None and not audit_confirmed:
                 saw_gate = True
