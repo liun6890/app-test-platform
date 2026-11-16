@@ -376,9 +376,8 @@ function App() {
     applySelectedDevices(current.includes(serial) ? current.filter((item) => item !== serial) : [...current, serial]);
   }
 
-  function selectReadyDevices() {
-    const readySerials = devices.filter((device) => device.ready && !device.jobId).map((device) => device.serial);
-    applySelectedDevices([...selectedDevicesRef.current, ...readySerials]);
+  function selectDevices(serials: string[]) {
+    applySelectedDevices([...new Set([...selectedDevicesRef.current, ...serials])]);
   }
 
   function clearDeviceSelection() {
@@ -716,7 +715,7 @@ function App() {
           {loading ? <PageLoading /> : (
             <>
               {view === "overview" && <Overview devices={devices} runs={runs} reports={reports} onNavigate={navigate} onStop={stopDevice} onResume={resumeDevice} onEnd={endDevice} busyAction={busyAction} />}
-              {view === "devices" && <DevicesPage devices={devices} groups={deviceGroups} selected={selectedDevices} refreshing={refreshing} busyAction={busyAction} onToggle={toggleDevice} onSelectReady={selectReadyDevices} onClear={clearDeviceSelection} onRefresh={() => void refreshData(true, true)} onSync={() => void syncFastbot()} onConfigure={configureSelectedDevices} onStop={(serial) => void stopDevice(serial)} onResume={resumeDevice} onEnd={endDevice} onCreateGroup={createDeviceGroup} onRenameGroup={renameDeviceGroup} onDeleteGroup={deleteDeviceGroup} onMoveDevices={moveDevicesToGroup} />}
+              {view === "devices" && <DevicesPage devices={devices} groups={deviceGroups} selected={selectedDevices} refreshing={refreshing} busyAction={busyAction} onToggle={toggleDevice} onSelectSerials={selectDevices} onClear={clearDeviceSelection} onRefresh={() => void refreshData(true, true)} onSync={() => void syncFastbot()} onConfigure={configureSelectedDevices} onStop={(serial) => void stopDevice(serial)} onResume={resumeDevice} onEnd={endDevice} onCreateGroup={createDeviceGroup} onRenameGroup={renameDeviceGroup} onDeleteGroup={deleteDeviceGroup} onMoveDevices={moveDevicesToGroup} />}
               {view === "config" && <ConfigPage config={config} templates={configTemplates} devices={devices} selectedDevices={selectedDevices} preflight={preflight} setConfig={applyConfig} uploading={busyAction === "upload"} starting={busyAction === "start"} onUpload={uploadApk} onStart={() => void startRun()} onManageDevices={() => navigate("devices")} />}
               {view === "runs" && <RunsPage runs={runs} devices={devices} busyAction={busyAction} onStop={(run) => void stopRun(run)} onResume={resumeDevice} onEnd={endDevice} onConfirmInstall={(run) => void confirmInstall(run)} onNavigate={navigate} />}
               {view === "reports" && <ReportsPage items={filteredTestReports} query={reportQuery} status={reportStatus} onQuery={setReportQuery} onStatus={setReportStatus} onOpen={setActiveTestReport} onDelete={(report) => void deleteTestReport(report)} deletingReportId={deletingReportId} onRefresh={() => void refreshData(true, true)} refreshing={refreshing} />}

@@ -81,7 +81,7 @@ export function DeviceRunRow({ device, targetCycles, busy, resumeBusy, endBusy, 
   );
 }
 
-export function DevicesPage({ devices, groups, selected, refreshing, busyAction, onToggle, onSelectReady, onClear, onRefresh, onSync, onConfigure, onStop, onResume, onEnd, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveDevices }: { devices: Device[]; groups: DeviceGroup[]; selected: string[]; refreshing: boolean; busyAction: string | null; onToggle: (serial: string) => void; onSelectReady: () => void; onClear: () => void; onRefresh: () => void; onSync: () => void; onConfigure: () => void; onStop: (serial: string) => void; onResume: (jobId: string, serial: string) => void; onEnd: (jobId: string, serial: string) => void; onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void; onMoveDevices: (serials: string[], groupId: string | null) => void }) {
+export function DevicesPage({ devices, groups, selected, refreshing, busyAction, onToggle, onSelectSerials, onClear, onRefresh, onSync, onConfigure, onStop, onResume, onEnd, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveDevices }: { devices: Device[]; groups: DeviceGroup[]; selected: string[]; refreshing: boolean; busyAction: string | null; onToggle: (serial: string) => void; onSelectSerials: (serials: string[]) => void; onClear: () => void; onRefresh: () => void; onSync: () => void; onConfigure: () => void; onStop: (serial: string) => void; onResume: (jobId: string, serial: string) => void; onEnd: (jobId: string, serial: string) => void; onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void; onMoveDevices: (serials: string[], groupId: string | null) => void }) {
   const selectedSet = new Set(selected);
   const readyForRun = (device: Device) => device.ready && !device.jobId;
   const selectable = (device: Device) => readyForRun(device) || selectedSet.has(device.serial);
@@ -122,6 +122,7 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
     : activeGroup === "__none__"
       ? ungroupedDevices
       : devices.filter((device) => groupOf.get(device.serial) === activeGroup);
+  const visibleReadyCount = visibleDevices.filter(readyForRun).length;
   const groupNameOf = (serial: string) => groups.find((group) => group.id === groupOf.get(serial))?.name || "未分组";
 
   function beginPointerDrag(event: React.PointerEvent, serial: string) {
@@ -390,9 +391,9 @@ export function DevicesPage({ devices, groups, selected, refreshing, busyAction,
           )}
           <p className="field-note">拖动设备行到文件夹即可分组；勾选多台后拖动可批量入组。双击分组可重命名。</p>
           <div className="device-selection-actions">
-            <button className="secondary-button" type="button" onClick={onSelectReady} disabled={!readyCount}><CheckCircle2 size={17} />全选就绪设备</button>
-            <button className="secondary-button" type="button" onClick={onClear} disabled={!selected.length}><X size={17} />清空选择</button>
-            <span>{readyCount} 台设备当前可选，选择会自动保存</span>
+            <button className="secondary-button" type="button" onClick={() => onSelectSerials(visibleDevices.filter(readyForRun).map((device) => device.serial))} disabled={!visibleReadyCount}><CheckCircle2 size={17} />{activeGroup === null ? "全选就绪设备" : "全选本组就绪设备"}</button>
+            <button className="secondary-button" type="button" onClick={onClear} disabled={!selected.length}><X size={17} />清空全部选择</button>
+            <span>{activeGroup === null ? `${readyCount} 台设备当前可选` : `当前分组 ${visibleReadyCount} 台可选（全部设备共 ${readyCount} 台）`}，选择会自动保存</span>
           </div>
           {selected.length > 0 && <div className={`selection-health ${unavailable.length ? "is-warning" : ""}`}>
             {unavailable.length ? <><AlertTriangle size={18} /><div><strong>{unavailable.length} 台已选设备当前不可启动</strong><span>{unavailable.join("、")}。已保留选择，请恢复设备后刷新，或手动取消选择。</span></div></> : <><CheckCircle2 size={18} /><div><strong>{selected.length} 台设备已就绪，可进入配置</strong><span>压测组件同步和启动前预检都会使用这份已保存的选择。</span></div></>}
