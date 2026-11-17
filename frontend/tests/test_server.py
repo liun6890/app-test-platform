@@ -3662,5 +3662,232 @@ class DeviceGroupTests(unittest.TestCase):
         self.assertEqual(["s1"], loaded[0]["devices"])
 
 
+class LaunchRaceRecoveryTests(unittest.TestCase):
+    """A lost launch race must never hide a run that is actually alive.
+
+    The console's manual install confirmation and the automatic install
+    watcher both call ``_launch_job_cli``.  When the watcher lost that race it
+    used to record the whole job as ``failed`` while the winning CLI kept
+    working for hours: the task vanished from the console, the devices showed
+    as idle, and the stop button became a no-op.
+    """
+
+    def _job(self, root: Path, status: str = "awaiting_install") -> dict:
+        return {
+            "id": "WEB-launch-race",
+            "status": status,
+            "phase": status,
+            "startedAt": server.utc_now(),
+            "startedEpoch": 1.0,
+            "finishedAt": None,
+            "packageName": "com.example.sample",
+            "apkName": "sample.apk",
+            "devices": ["serial-1"],
+            "duration": 1,
+            "cycles": 1,
+            "workers": 1,
+            "pid": None,
+            "exitCode": None,
+            "jobDir": str(root),
+            "reportRoot": str(root / "reports"),
+            "logPath": str(root / "console.log"),
+            "configPath": str(root / "config.json"),
+            "process": None,
+            "logStream": io.BytesIO(),
+            "installation": {
+                "required": True,
+                "status": "waiting",
+                "pendingDevices": ["serial-1"],
+                "confirmedAt": None,
+                "devices": {
+                    "serial-1": {
+                        "serial": "serial-1",
+                        "required": True,
+                        "installed": True,
+                        "status": "confirmed",
+                    }
+                },
+            },
+        }
+
+    def _process(self, pid: int) -> mock.Mock:
+        process = mock.Mock(pid=pid)
+        process.poll.return_value = None
+        return process
+
+    def _install_ready(self):
+        return (
+            mock.patch.object(server, "_package_installed", return_value=True),
+            mock.patch.object(server, "_package_matches_apk", return_value=True),
+        )
+
+    def test_claim_conflict_keeps_live_run_observable(self) -> None:
+        evidence = {
+            "phase": "running",
+            "pressureStarted": True,
+            "errors": [],
+            "reports": {},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            job = self._job(Path(temporary))
+            process = self._process(4242)
+            job["_processes"] = {"key-1": process}
+            job["_processDevices"] = {"key-1": ["serial-1"]}
+            job["_primaryProcessKey"] = "key-1"
+            server.JOBS[job["id"]] = job
+            try:
+                installed, matches = self._install_ready()
+                with (
+                    installed,
+                    matches,
+                    mock.patch.object(
+                        server,
+                        "_launch_job_cli",
+                        side_effect=server.ApiError(
+                            "device already has a live resume claim",
+                            server.HTTPStatus.CONFLICT,
+                        ),
+                    ),
+                    mock.patch.object(
+                        server, "_live_job_processes", return_value={"key-1": process}
+                    ),
+                    mock.patch.object(
+                        server, "_cached_job_evidence", return_value=dict(evidence)
+                    ),
+                    mock.patch.object(server, "persist_job"),
+                ):
+                    result = server.confirm_job_install(job["id"])
+            finally:
+                server.JOBS.pop(job["id"], None)
+
+        self.assertEqual("running", result["status"])
+        self.assertNotEqual("failed", job["status"])
+        self.assertIsNone(job["finishedAt"])
+
+    def test_launch_failure_without_live_worker_stays_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            job = self._job(Path(temporary))
+            server.JOBS[job["id"]] = job
+            try:
+                installed, matches = self._install_ready()
+                with (
+                    installed,
+                    matches,
+                    mock.patch.object(
+                        server, "_launch_job_cli", side_effect=OSError("spawn failed")
+                    ),
+                    mock.patch.object(server, "_live_job_processes", return_value={}),
+                    mock.patch.object(server, "persist_job"),
+                ):
+                    with self.assertRaises(OSError):
+                        server.confirm_job_install(job["id"])
+            finally:
+                server.JOBS.pop(job["id"], None)
+
+        self.assertEqual("failed", job["status"])
+        self.assertIn("spawn failed", job["lastError"])
+        self.assertTrue(job["finishedAt"])
+
+    def test_refresh_readopts_failed_job_with_live_child(self) -> None:
+        evidence = {
+            "phase": "running",
+            "pressureStarted": True,
+            "errors": [],
+            "reports": {},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            job = self._job(Path(temporary), status="failed")
+            job["finishedAt"] = server.utc_now()
+            process = self._process(4243)
+            job["process"] = process
+            job["_primaryProcessKey"] = "key-1"
+            with (
+                mock.patch.object(
+                    server, "_live_job_processes", return_value={"key-1": process}
+                ),
+                mock.patch.object(
+                    server, "_cached_job_evidence", return_value=dict(evidence)
+                ),
+                mock.patch.object(server, "persist_job"),
+            ):
+                server.refresh_job(job)
+
+        self.assertEqual("running", job["status"])
+        self.assertIsNone(job["finishedAt"])
+
+    def test_refresh_leaves_failed_job_without_live_child_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            job = self._job(Path(temporary), status="failed")
+            job["finishedAt"] = server.utc_now()
+            with (
+                mock.patch.object(server, "_live_job_processes", return_value={}),
+                mock.patch.object(server, "persist_job"),
+            ):
+                server.refresh_job(job)
+
+        self.assertEqual("failed", job["status"])
+        self.assertTrue(job["finishedAt"])
+
+    def test_stop_of_terminal_job_still_stops_the_live_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            job = self._job(Path(temporary), status="stopped")
+            job["manualStopRequested"] = True
+            process = self._process(4244)
+            job["process"] = process
+            job["_processes"] = {"key-1": process}
+            job["_processDevices"] = {"key-1": ["serial-1"]}
+            job["_primaryProcessKey"] = "key-1"
+            server.JOBS[job["id"]] = job
+            controller = mock.Mock()
+            controller.request_stop_remote_fastbot.return_value = True
+            try:
+                with (
+                    mock.patch.object(
+                        server, "_live_job_processes", return_value={"key-1": process}
+                    ),
+                    mock.patch.object(
+                        server, "_live_resume_claim_serials", return_value=set()
+                    ),
+                    mock.patch.object(
+                        server.DeviceManager,
+                        "get_device_states",
+                        return_value={"serial-1": {"adb_state": "device"}},
+                    ),
+                    mock.patch.object(server, "MutexController", return_value=controller),
+                    mock.patch.object(server, "persist_job"),
+                    mock.patch.object(server, "_finalize_interrupted_reports"),
+                    mock.patch.object(server, "_signal_local_stop", return_value=True),
+                ):
+                    results = server.stop_job(job["id"])
+            finally:
+                server.JOBS.pop(job["id"], None)
+
+        controller.request_stop_remote_fastbot.assert_called_once()
+        self.assertTrue(results[0]["stopped"])
+        self.assertEqual("stopping", job["status"])
+
+    def test_stop_of_finished_job_does_not_touch_devices(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            job = self._job(Path(temporary), status="completed")
+            server.JOBS[job["id"]] = job
+            states = mock.Mock()
+            try:
+                with (
+                    mock.patch.object(server, "_live_job_processes", return_value={}),
+                    mock.patch.object(
+                        server, "_live_resume_claim_serials", return_value=set()
+                    ),
+                    mock.patch.object(
+                        server.DeviceManager, "get_device_states", new=states
+                    ),
+                ):
+                    results = server.stop_job(job["id"])
+            finally:
+                server.JOBS.pop(job["id"], None)
+
+        states.assert_not_called()
+        self.assertEqual([{"serial": "serial-1", "stopped": True}], results)
+
+
 if __name__ == "__main__":
     unittest.main()

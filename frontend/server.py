@@ -2840,6 +2840,15 @@ def _auto_confirm_install_when_ready(
             time.sleep(max(0.5, float(poll_seconds)))
             continue
         if ready:
+            # The operator (or another thread) may have confirmed while this
+            # watcher was probing ADB.  Re-read the status immediately before
+            # the launch so the automatic path cannot race a manual start.
+            current = JOBS.get(job_id)
+            if (
+                not isinstance(current, Mapping)
+                or current.get("status") != "awaiting_install"
+            ):
+                return
             try:
                 confirm_job_install(job_id)
                 _job_log(job, "检测到所有设备安装完成，已自动确认并开始测试")
@@ -4370,6 +4379,41 @@ def _dispatch_persisted_recovery_once(job: Dict[str, Any]) -> bool:
         return False
 
 
+def _adopt_live_job_process(job: Dict[str, Any]) -> bool:
+    """Re-attach a terminal job to a CLI invocation that is still running.
+
+    A launch can be recorded as a terminal failure *after* the child process
+    was spawned: an install-confirmation race loses the device claim and used
+    to report the whole job as ``failed``, while the winning invocation kept
+    working.  Because ``refresh_job`` returns early for terminal statuses that
+    run then stayed invisible: no progress, no stop button, and the devices
+    looked idle while they were actually under pressure.
+
+    Only a real local process handle is trusted.  A durable claim without a
+    local handle is deliberately not adopted, because a recycled PID cannot be
+    told apart from the original worker; the operator can still stop it.
+    """
+    if job.get("manualStopRequested"):
+        return False
+    live = _live_job_processes(job)
+    if not live:
+        return False
+    key, process = next(iter(live.items()))
+    job["process"] = process
+    job["pid"] = getattr(process, "pid", None)
+    job["_primaryProcessKey"] = key
+    evidence = _cached_job_evidence(job)
+    phase = str(evidence.get("phase") or "")
+    job["status"] = phase if phase in ACTIVE_JOB_STATUSES else "preparing"
+    job["phase"] = job["status"]
+    job["finishedAt"] = None
+    job["exitCode"] = None
+    job["evidence"] = evidence
+    _job_log(job, "检测到任务进程仍在运行，已重新接管该任务的状态")
+    persist_job(job)
+    return True
+
+
 def refresh_job(job: Dict[str, Any]) -> None:
     _hydrate_resume_claims(job)
     _reap_finished_job_processes(job)
@@ -4443,6 +4487,9 @@ def refresh_job(job: Dict[str, Any]) -> None:
                 return
         return
     if job.get("status") not in ACTIVE_JOB_STATUSES:
+        # A mis-recorded terminal status must not hide a live CLI from the
+        # console; adoption keeps the run observable and stoppable.
+        _adopt_live_job_process(job)
         return
     if job.get("status") == "stopping":
         deadline = float(job.get("stopDeadlineEpoch") or 0)
@@ -4567,7 +4614,24 @@ def refresh_job(job: Dict[str, Any]) -> None:
     persist_job(job)
 
 
+def _job_confirmation_lock(identifier: str) -> threading.RLock:
+    """Return the process-local lock that serializes install confirmation.
+
+    The console button and the automatic install watcher reach
+    ``_launch_job_cli`` from different threads.  Without this lock the loser
+    observes ``awaiting_install``, spends seconds verifying the APK, and then
+    conflicts with the device claim the winner has just taken.
+    """
+    return _resume_request_lock(identifier, "*confirm*")
+
+
 def confirm_job_install(identifier: str) -> Dict[str, Any]:
+    """Confirm the install stage, serialized per job."""
+    with _job_confirmation_lock(identifier):
+        return _confirm_job_install_unlocked(identifier)
+
+
+def _confirm_job_install_unlocked(identifier: str) -> Dict[str, Any]:
     with JOBS_LOCK:
         job = JOBS.get(identifier)
     if job is None:
@@ -4625,10 +4689,35 @@ def confirm_job_install(identifier: str) -> Dict[str, Any]:
     _finish_install_processes(job)
     try:
         _launch_job_cli(job)
-    except Exception:
+    except Exception as exc:
+        # A device-claim conflict is not a launch failure: another invocation
+        # already owns every target device, so the run is alive.  Recording a
+        # terminal failure here used to strand a healthy CLI behind a task the
+        # console never refreshed or stopped again.
+        claim_conflict = (
+            isinstance(exc, ApiError) and exc.status == HTTPStatus.CONFLICT
+        )
+        live_claims = _live_resume_claim_serials(job) if claim_conflict else set()
+        if _adopt_live_job_process(job) or live_claims:
+            if not _live_job_processes(job):
+                # The winning worker belongs to an earlier service epoch; no
+                # local handle exists, but the devices are claimed and busy.
+                job["status"] = "preparing"
+                job["phase"] = "preparing"
+                job["finishedAt"] = None
+                job["evidence"] = _cached_job_evidence(job)
+                persist_job(job)
+            return public_job(job, include_log=True)
         job["status"] = "failed"
         job["phase"] = "failed"
         job["finishedAt"] = utc_now()
+        # Without this the console could only show a bare failure: the reason
+        # used to be dropped, which is why a claim conflict looked like an
+        # unexplained terminal state.
+        job["lastError"] = (
+            exc.message if isinstance(exc, ApiError) else str(exc)
+        ) or "unable to start the test process"
+        _job_log(job, "启动测试进程失败：%s" % job["lastError"])
         persist_job(job)
         raise
     return public_job(job, include_log=True)
@@ -5266,10 +5355,15 @@ def stop_job(identifier: str) -> List[Dict[str, Any]]:
 
     refresh_job(job)
     if str(job.get("status") or "") in {"completed", "failed", "stopped"}:
-        return [
-            {"serial": str(serial), "stopped": True}
-            for serial in job.get("devices", [])
-        ]
+        # A task recorded as terminal can still own a live worker (a lost
+        # launch race or a bookkeeping failure).  Answering "stopped" without
+        # sending the stop left those devices under pressure with no way to
+        # stop them from the console.
+        if not _live_job_processes(job) and not _live_resume_claim_serials(job):
+            return [
+                {"serial": str(serial), "stopped": True}
+                for serial in job.get("devices", [])
+            ]
 
     serials = list(
         dict.fromkeys(
