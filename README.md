@@ -187,7 +187,7 @@ python cli.py cleanup --max-age-days 7 --max-total-gb 50
 | `screenshot` | `enabled`、`interval_seconds` | 过程截图存盘（关闭后仍保留卡页采样与失败证据） |
 | `stall_watchdog` | `enabled`、`mode`、`sample_interval_seconds`、`unchanged_seconds`、`max_recoveries_per_cycle` | 卡页检测：默认 30 秒采样、300 秒无变化判卡、每轮最多恢复 1 次 |
 | `fastbot` | `classpath`、`main_class`、`expected_monkeyq_md5`、`extra_args`、`event_percentages` | 引擎路径、入口类、完整性校验、随机事件比例 |
-| `devices` | `[{serial, alias}]` | 默认设备列表 |
+| `devices` | `[{serial, alias}]` | 默认设备列表；`serial` 写 `auto` 表示取本机全部已授权设备 |
 | `retention` | `max_age_days`、`max_total_gb` | 产物保留策略 |
 | `paths` / `logging` | `reports_dir`、`log_dir`、`level` | 产物与日志位置 |
 
@@ -256,17 +256,19 @@ frontend/runtime-local/
 
 `.gitignore` 已排除 `runtime-local/`、`reports/`、`logs/`、`dist/`、`node_modules/`、`*.apk` 等运行时数据与构建产物。
 
+输出根**不绑定盘符**：默认就是仓库目录，换机器 clone 到任意路径都能直接运行。需要把产物放到别处时设置 `APP_PRESS_TEST_OUTPUT_ROOT`（绝对路径，或相对仓库根的位置）；如果它指向一个本机不存在的盘符，启动时会直接报错说明，而不是在写报告时才失败。
+
 ---
 
 ## 十、测试
 
 ```powershell
-# 后端单元测试（494 个）
+# 后端单元测试（495 个）
 python -m unittest discover -s tests
 
-# 控制台后端测试（93 个）
+# 控制台后端测试（128 个）
 cd frontend
-python -m unittest tests.test_server
+python -m unittest discover -s tests
 
 # 前端测试（node:test，14 个）
 cd frontend

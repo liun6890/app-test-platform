@@ -7,7 +7,6 @@ import json
 import math
 import os
 import re
-import shutil
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
@@ -100,6 +99,41 @@ def resolve_local_apk_path(
     return path
 
 
+def _require_existing_drive(path: Path) -> None:
+    """Reject a configured output root whose drive is not mounted here.
+
+    ``APP_PRESS_TEST_OUTPUT_ROOT`` is often copied between machines together
+    with the rest of the environment.  Failing with a readable message beats
+    the ``FileNotFoundError`` a later ``disk_usage`` or ``mkdir`` would raise.
+    """
+    drive = path.drive
+    if not drive:
+        return
+    anchor = Path(drive + os.sep)
+    if not anchor.exists():
+        raise ConfigurationError(
+            "output root %s points at drive %s, which does not exist on this "
+            "machine; set APP_PRESS_TEST_OUTPUT_ROOT to a local directory, or "
+            "unset it to keep artifacts inside the project folder" % (path, drive)
+        )
+
+
+def output_root() -> Path:
+    """Return the directory that receives every generated artifact.
+
+    The default is the project checkout itself, so a fresh clone on an
+    unknown machine works without an environment variable or a specific
+    drive letter.
+    """
+    configured = str(os.environ.get("APP_PRESS_TEST_OUTPUT_ROOT") or "").strip()
+    root = Path(configured).expanduser() if configured else PROJECT_ROOT
+    if not root.is_absolute():
+        root = PROJECT_ROOT / root
+    root = root.resolve(strict=False)
+    _require_existing_drive(root)
+    return root
+
+
 def resolve_project_path(value: str) -> Path:
     """Resolve an output path relative to the configured output directory."""
     raw = str(value).strip()
@@ -109,28 +143,10 @@ def resolve_project_path(value: str) -> Path:
         raise ConfigurationError("network-share output paths are not allowed")
     path = Path(raw).expanduser()
     if not path.is_absolute():
-        output_root = Path(
-            os.environ.get(
-                "APP_PRESS_TEST_OUTPUT_ROOT",
-                r"E:\app_press_test" if os.name == "nt" else str(PROJECT_ROOT),
-            )
-        ).expanduser()
-        if not output_root.is_absolute():
-            output_root = PROJECT_ROOT / output_root
-        path = output_root / path
+        path = output_root() / path
     path = path.resolve(strict=False)
     if str(path).startswith(("\\\\", "//")):
         raise ConfigurationError("network-share output paths are not allowed")
-    # Pressure artifacts must never consume the system drive.  Keep the
-    # configured relative layout while failing over from E: to D: when E:
-    # is nearly full.
-    drive = path.drive.upper()
-    if drive == "E:" and shutil.disk_usage("E:\\").free < 5 * 1024**3:
-        relative = Path(str(path)[3:].lstrip("\\/"))
-        fallback = Path("D:/") / relative
-        if fallback.drive.upper() != "D:" or not Path("D:/").exists():
-            raise ConfigurationError("E: is low on space and D: is unavailable")
-        path = fallback.resolve(strict=False)
     return path
 
 

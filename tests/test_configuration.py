@@ -8,6 +8,7 @@ from unittest.mock import patch
 from core.configuration import (
     ConfigurationError,
     MAX_SAFE_WORKERS,
+    PROJECT_ROOT,
     load_config,
     require_local_apk,
     resolve_project_path,
@@ -16,14 +17,23 @@ from core.configuration import (
 
 class ConfigurationTests(unittest.TestCase):
 
-    @unittest.skipUnless(os.name == "nt", "Windows output-root default")
-    def test_relative_output_path_defaults_to_e_drive_on_windows(self):
+    def test_relative_output_path_defaults_to_project_root(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("APP_PRESS_TEST_OUTPUT_ROOT", None)
             self.assertEqual(
                 resolve_project_path("./reports"),
-                Path(r"E:\app_press_test\reports").resolve(),
+                (PROJECT_ROOT / "reports").resolve(),
             )
+
+    def test_missing_output_drive_reports_a_readable_error(self):
+        missing = "Q:/does-not-exist"
+        if os.name != "nt" or Path("Q:/").exists():
+            self.skipTest("needs a Windows drive letter that is not mounted")
+        with patch.dict(
+            os.environ, {"APP_PRESS_TEST_OUTPUT_ROOT": missing}, clear=False
+        ):
+            with self.assertRaisesRegex(ConfigurationError, "does not exist"):
+                resolve_project_path("./reports")
 
     def test_relative_output_path_uses_configured_output_root(self):
         with tempfile.TemporaryDirectory() as temporary:

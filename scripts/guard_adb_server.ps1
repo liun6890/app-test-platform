@@ -6,7 +6,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$SecondaryPort = 5038,
 
-    [string]$AdbPath = 'D:\Android\android-sdk\platform-tools\adb.exe',
+    [string]$AdbPath = 'adb',
 
     [ValidateRange(1, 10)]
     [int]$RequiredIdleChecks = 3,
@@ -16,7 +16,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$logRoot = 'E:\app_press_test\logs\adb_guard'
+$logRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs\adb_guard'
 $logPath = Join-Path $logRoot 'adb_guard.log'
 $statePath = Join-Path $logRoot 'adb_guard_state.json'
 $lockPath = Join-Path $logRoot 'adb_guard.lock'

@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyd
@@ -40,7 +40,8 @@ repro_output/
 /*.xml
 *.log
 *.pid
-frontend/runtime-local/launcher/
+# Default output root of a fresh clone (no APP_PRESS_TEST_OUTPUT_ROOT set).
+frontend/runtime-local/
 frontend/.vite/
 
 # OS files

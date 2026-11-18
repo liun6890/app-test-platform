@@ -37,7 +37,7 @@ if ($pathKeys.Count -gt 1) {
 
 $ProjectRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $FrontendRoot = Join-Path $ProjectRoot "frontend"
-$LauncherRoot = "E:\app_press_test\frontend\runtime-local\launcher"
+$LauncherRoot = Join-Path $FrontendRoot "runtime-local\launcher"
 $StatePath = Join-Path $LauncherRoot "services.json"
 
 function Fail([string]$Message) {
@@ -260,7 +260,7 @@ if ($CheckOnly -or -not $backendReady) {
     # write). Probe the output root and fall back to a writable interpreter.
     $probeRoot = $env:APP_PRESS_TEST_OUTPUT_ROOT
     if ([string]::IsNullOrWhiteSpace($probeRoot)) {
-        $probeRoot = "E:\app_press_test"
+        $probeRoot = $ProjectRoot
     }
     if (Test-Path -LiteralPath $probeRoot -PathType Container) {
         $probeFile = Join-Path $probeRoot (".write-probe-{0}.tmp" -f [guid]::NewGuid().ToString("N"))

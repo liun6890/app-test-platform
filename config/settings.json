@@ -1,6 +1,6 @@
 {
     "app": {
-        "package_name": "com.nxxbsvwhyq.privatevideohighdefinitionplayer",
+        "package_name": "com.example.app",
         "apk_path": "../apks/app-under-test.apk"
     },
     "test": {
@@ -20,8 +20,8 @@
     },
     "devices": [
         {
-            "serial": "a93adef2",
-            "alias": "target-device"
+            "serial": "auto",
+            "alias": "auto"
         }
     ],
     "logging": {

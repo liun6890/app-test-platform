@@ -6,7 +6,7 @@ $taskName = 'AppPressTest-Adb5038Guard'
 $powershell = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
 $guardScript = Join-Path $PSScriptRoot 'guard_adb_server.ps1'
 $taskCommand = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $powershell, $guardScript)
-$logRoot = 'E:\app_press_test\logs\adb_guard'
+$logRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs\adb_guard'
 $installLog = Join-Path $logRoot 'task_install.log'
 
 [System.IO.Directory]::CreateDirectory($logRoot) | Out-Null

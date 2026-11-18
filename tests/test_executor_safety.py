@@ -1,5 +1,7 @@
 import itertools
 import json
+import os
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -13,6 +15,10 @@ from unittest.mock import Mock, call, patch
 from core.executor import PressureEngineError, TestExecutor, _DetachedRemoteProcess
 from core.fastbot_assets import runtime_asset_md5, runtime_remote_path
 from core.stall_monitor import ImageFingerprint, StallObservation
+
+# A few audit-gate cases drive the real ADB client instead of a mock.  They
+# only make sense on a machine that has one installed.
+ADB_AVAILABLE = shutil.which(os.environ.get("ADB_PATH") or "adb") is not None
 
 
 class _PermissionRecoveryClock:
@@ -1890,6 +1896,7 @@ class ExecutorSafetyTests(unittest.TestCase):
         self.assertEqual(tap.call_count, 2)
         self.assertEqual(stop_event.wait.call_args_list, [call(0.5), call(1.0)])
 
+    @unittest.skipUnless(ADB_AVAILABLE, "requires an installed adb client")
     def test_audit_gate_is_completed_before_fastbot_starts(self):
         executor = self._executor("/sdcard/monkeyq.jar")
         executor.config["scenario"] = {
@@ -2038,6 +2045,7 @@ class ExecutorSafetyTests(unittest.TestCase):
 
         self.assertEqual(3, calls)
 
+    @unittest.skipUnless(ADB_AVAILABLE, "requires an installed adb client")
     def test_audit_prepare_uses_adb_hierarchy_after_stale_device_dump(self):
         executor = self._executor("/sdcard/monkeyq.jar")
         executor.config["scenario"] = {
@@ -2095,6 +2103,7 @@ class ExecutorSafetyTests(unittest.TestCase):
         self.assertGreaterEqual(len(fallback_calls), 1)
         self.assertEqual([audit, confirm, privacy], [item.args[0] for item in tap.call_args_list])
 
+    @unittest.skipUnless(ADB_AVAILABLE, "requires an installed adb client")
     def test_privacy_tap_failure_is_retried_and_verified(self):
         executor = self._executor("/sdcard/monkeyq.jar")
         privacy = ET.fromstring(

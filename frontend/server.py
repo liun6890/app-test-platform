@@ -1,4 +1,4 @@
-﻿"""Local HTTP API and static server for the Fastbot web console.
+"""Local HTTP API and static server for the Fastbot web console.
 
 This module is intentionally kept under ``frontend``. It delegates device and
 test operations to the existing project modules and CLI without changing them.
@@ -116,7 +116,7 @@ def runtime_storage_root() -> Path:
             attributes = 0
         # FILE_ATTRIBUTE_REPARSE_POINT (0x400) covers directory junctions on
         # Windows.  A regular runtime directory continues to use the shared
-        # output-root policy, including the existing E:/D: fallback.
+        # output-root policy.
         if attributes & 0x400:
             fallback = resolve_project_path("./frontend/runtime-local")
             fallback.mkdir(parents=True, exist_ok=True)
@@ -197,10 +197,14 @@ for directory in (RUNTIME_ROOT, UPLOAD_ROOT, RUN_ROOT):
     directory.mkdir(parents=True, exist_ok=True)
 
 from core.crash_handler import CrashHandler  # noqa: E402
-from core.device_manager import DeviceManager  # noqa: E402
+from core.device_manager import DeviceManager, missing_adb_message  # noqa: E402
 from core.vendor_install import InstallPromptClicker  # noqa: E402
 from core.mutex_controller import MutexController  # noqa: E402
 from core.reporting import ReportGenerator  # noqa: E402
+
+# Follow the same ADB client as the workers so the console never probes a
+# different server (and a different version) than the CLI it launches.
+ADB_BIN = str(DeviceManager.adb_path or "adb")
 
 
 JOBS: Dict[str, Dict[str, Any]] = {}
@@ -278,18 +282,44 @@ def audit_event(action: str, **fields: Any) -> None:
         sys.stderr.write("audit: unable to append %s\n" % action)
 
 
+def _adb_executable_available(executable: Optional[str] = None) -> bool:
+    """Return whether the configured ADB client can be resolved here.
+
+    An explicit path (``ADB_PATH=C:\\...\\adb.exe``) must exist as a file; a
+    bare command name is looked up on ``PATH`` like any other executable.
+    """
+    candidate = str(executable or ADB_BIN).strip()
+    if not candidate:
+        return False
+    if Path(candidate).is_file():
+        return True
+    if os.path.dirname(candidate):
+        return False
+    return shutil.which(candidate) is not None
+
+
 def runtime_health() -> Dict[str, Any]:
     try:
         import uiautomator2  # noqa: F401
         uiautomator_available = True
     except ImportError:
         uiautomator_available = False
+    adb_available = _adb_executable_available()
+    warnings: List[str] = []
+    if not adb_available:
+        warnings.append(missing_adb_message(ADB_BIN))
+    # ``ok`` keeps its original meaning ("the console can run a job") so the
+    # header badge does not flip to disconnected on a machine without ADB;
+    # ``ready`` is the stricter answer callers should use before starting.
     return {
         "ok": uiautomator_available,
+        "ready": uiautomator_available and adb_available,
         "mode": "local",
         "engine": "fastbot",
         "python": str(RUNTIME_PYTHON),
         "uiautomator2": uiautomator_available,
+        "adb": {"available": adb_available, "executable": ADB_BIN},
+        "warnings": warnings,
         "time": utc_now(),
     }
 
@@ -9290,12 +9320,16 @@ def start_cache_warmer() -> None:
 
 
 _ADB_WATCHDOG_INTERVAL = 10.0
+# A restart that keeps failing must not spin: back off 20s, 40s, ... up to 5min.
+_ADB_WATCHDOG_RESTART_BACKOFF = 20.0
+_ADB_WATCHDOG_MAX_INTERVAL = 300.0
+_ADB_WATCHDOG_TIMEOUT = 45.0
 
 
 def _adb_server_answers(timeout: float = 15.0) -> bool:
     try:
         result = subprocess.run(
-            ["adb", "devices"], capture_output=True, text=True, timeout=timeout
+            [ADB_BIN, "devices"], capture_output=True, text=True, timeout=timeout
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -9306,7 +9340,7 @@ def _adb_device_count(timeout: float = 15.0) -> int:
     """Return the number of connected devices, or -1 when adb does not answer."""
     try:
         result = subprocess.run(
-            ["adb", "devices"], capture_output=True, text=True, timeout=timeout
+            [ADB_BIN, "devices"], capture_output=True, text=True, timeout=timeout
         )
     except (OSError, subprocess.SubprocessError):
         return -1
@@ -9318,7 +9352,10 @@ def _adb_device_count(timeout: float = 15.0) -> int:
 def _restart_adb_server() -> bool:
     try:
         subprocess.run(
-            ["adb", "start-server"], capture_output=True, text=True, timeout=45
+            [ADB_BIN, "start-server"],
+            capture_output=True,
+            text=True,
+            timeout=_ADB_WATCHDOG_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -9340,16 +9377,32 @@ def _adb_watchdog_loop() -> None:
     notice.
     """
     failures = 0
+    restart_backoff = _ADB_WATCHDOG_RESTART_BACKOFF
+    missing_reported = False
     last_count = _adb_device_count()
     while True:
         time.sleep(_ADB_WATCHDOG_INTERVAL)
+        if not _adb_executable_available():
+            # Nothing to restart when the client itself is missing; say so once
+            # and stay idle instead of writing the same line every 10 seconds.
+            if not missing_reported:
+                missing_reported = True
+                sys.stderr.write(
+                    "adb watchdog: %s\n" % missing_adb_message(ADB_BIN)
+                )
+            continue
+        missing_reported = False
         count = _adb_device_count()
         if count >= 0:
             failures = 0
+            restart_backoff = _ADB_WATCHDOG_RESTART_BACKOFF
             if last_count >= 1 and count == 0:
                 try:
                     subprocess.run(
-                        ["adb", "reconnect"], capture_output=True, text=True, timeout=30
+                        [ADB_BIN, "reconnect"],
+                        capture_output=True,
+                        text=True,
+                        timeout=_ADB_WATCHDOG_TIMEOUT,
                     )
                 except (OSError, subprocess.SubprocessError):
                     pass
@@ -9374,8 +9427,14 @@ def _adb_watchdog_loop() -> None:
             )
             last_count = recovered
             failures = 0
+            restart_backoff = _ADB_WATCHDOG_RESTART_BACKOFF
         else:
-            sys.stderr.write("adb watchdog: server restart failed\n")
+            sys.stderr.write(
+                "adb watchdog: server restart failed (next attempt in %.0fs)\n"
+                % restart_backoff
+            )
+            time.sleep(restart_backoff)
+            restart_backoff = min(_ADB_WATCHDOG_MAX_INTERVAL, restart_backoff * 2)
 
 
 def start_adb_watchdog() -> None:

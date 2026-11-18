@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
-$StatePath = "E:\app_press_test\frontend\runtime-local\launcher\services.json"
+$StatePath = Join-Path $ProjectRoot "frontend\runtime-local\launcher\services.json"
 
 function Stop-ProcessTree {
     param(

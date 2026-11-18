@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+# ``server`` resolves its runtime root at import time; keep the suite from
+# writing into the machine's real device groups and audit log.
+os.environ.setdefault(
+    "APP_PRESS_TEST_OUTPUT_ROOT", tempfile.mkdtemp(prefix="app-press-console-tests-")
+)
 
 import server
 
@@ -32,7 +39,7 @@ class RequestValidationTests(unittest.TestCase):
 
     def payloads(self):
         yield self.payload
-        yield {**self.payload, "configFile": "acceptance_baibai_fastbot.json", "workflowMode": "generic"}
+        yield {**self.payload, "configFile": "settings.json", "workflowMode": "generic"}
 
     def test_run_rejects_non_integer_numbers(self):
         for payload in self.payloads():

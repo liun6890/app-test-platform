@@ -7,10 +7,36 @@ import os
 import re
 import subprocess
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 
 logger = logging.getLogger(__name__)
+
+_MISSING_ADB_HINT = (
+    'adb executable was not found ("%s"). Install Android Platform Tools and add '
+    "adb to PATH, or set the ADB_PATH environment variable to its full path."
+)
+_LOGGED_DISCOVERY_FAILURES: Set[str] = set()
+
+
+def missing_adb_message(executable: str) -> str:
+    """Return the operator-facing message for an unusable ADB executable."""
+    return _MISSING_ADB_HINT % (executable or "adb")
+
+
+def _log_discovery_failure(message: str) -> None:
+    """Warn once per process about an unrecoverable discovery failure.
+
+    The console polls devices continuously, so an unusable ADB client would
+    otherwise write the same error several times a second.
+    """
+    key = str(message)
+    if key in _LOGGED_DISCOVERY_FAILURES:
+        logger.debug("%s", key)
+        return
+    _LOGGED_DISCOVERY_FAILURES.add(key)
+    logger.warning("%s", key)
+
 
 # Keep every project-owned ADB client on the single primary server.  Allowing
 # callers to inherit another port can split USB transports across daemons and
@@ -56,6 +82,9 @@ class DeviceManager:
                 last_error = RuntimeError(
                     result.stderr.strip() or result.stdout.strip() or "ADB failed"
                 )
+            except FileNotFoundError:
+                # Retrying cannot create an executable; fail with the fix.
+                raise RuntimeError(missing_adb_message(cls.adb_path)) from None
             except (OSError, subprocess.TimeoutExpired) as exc:
                 last_error = exc
 
@@ -94,7 +123,7 @@ class DeviceManager:
         try:
             result = cls._run_adb(["devices", "-l"], retries=1)
         except RuntimeError as exc:
-            logger.error("Unable to list Android devices: %s", exc)
+            _log_discovery_failure("Unable to list Android devices: %s" % exc)
             return {}
 
         devices: Dict[str, Dict[str, object]] = {}

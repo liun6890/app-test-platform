@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Callable, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
+from .device_manager import missing_adb_message
 from .mutex_controller import MutexController
 from .fastbot_assets import (
     bundled_native_remote_path,
@@ -532,6 +533,10 @@ class TestExecutor:
                     or last_result.stdout.strip()
                     or "ADB failed"
                 )
+            except FileNotFoundError:
+                # Report the actionable message instead of retrying a client
+                # that cannot exist on this machine.
+                raise RuntimeError(missing_adb_message(self.adb_path)) from None
             except (OSError, subprocess.TimeoutExpired) as exc:
                 last_error = exc
             if attempt < retries:

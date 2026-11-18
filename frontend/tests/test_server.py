@@ -10,6 +10,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+# ``server`` resolves its runtime root at import time.  Point it at a scratch
+# directory first so a test run cannot rewrite the device groups, drafts and
+# audit log of the machine that happens to execute the suite.
+os.environ["APP_PRESS_TEST_OUTPUT_ROOT"] = tempfile.mkdtemp(
+    prefix="app-press-console-tests-"
+)
+
 import console_scenario
 import server
 

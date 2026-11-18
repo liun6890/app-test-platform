@@ -34,8 +34,8 @@ cd frontend
 `127.0.0.1`，不会向网络上传 APK、设备数据或测试报告。
 
 上传 APK、任务状态、运行日志、报告、截图和崩溃证据统一写入
-`APP_PRESS_TEST_OUTPUT_ROOT`。Windows 默认目录为
-`E:\app_press_test\frontend\runtime`。
+`APP_PRESS_TEST_OUTPUT_ROOT`；不设置时落在仓库内的
+`frontend/runtime-local/`，不依赖任何固定盘符。
 
 ## 使用顺序
 

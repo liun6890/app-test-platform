@@ -1,6 +1,13 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+
+# ``server`` resolves its runtime root at import time; keep the suite from
+# writing into the machine's real device groups and audit log.
+os.environ.setdefault(
+    "APP_PRESS_TEST_OUTPUT_ROOT", tempfile.mkdtemp(prefix="app-press-console-tests-")
+)
 
 import server
 
